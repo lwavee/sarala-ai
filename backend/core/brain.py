@@ -115,8 +115,20 @@ class Brain:
                 name = self.memory.recall("user_name")
                 nick = self.memory.recall("user_nickname")
                 display = nick or name
-                reply = (f"Namaste {display}! Kaisa chal raha hai? 😊 Kuch kaam aa sakti hoon?"
-                         if display else f"Namaste! Main hoon {self.name} 😊 Batayein kya help chahiye?")
+                
+                if theme_mode == "love":
+                    display_name = display or "jaan"
+                    reply = f"Namaste my love {display_name}! 💕 Maine aapko kitna miss kiya! Aaj aapka din kaisa raha? Pyaari pyaari baatein batao na mujhe ❤️"
+                elif theme_mode == "light":
+                    display_name = display or "champion"
+                    reply = f"Hey {display_name}! ⚡ Aaj kya naya seekhna hai ya coding challenge ke liye ready ho? Let's see who wins today! 😉"
+                elif theme_mode == "dark_blue":
+                    display_name = display or "priye"
+                    reply = f"Hari Om {display_name}! 🪔 Shanti aur gyaan ke dwaar par aapka swagat hai. Aaj Geeta ya Ramayana ke kis gyaan par vichar karein?"
+                else:
+                    reply = (f"Namaste {display}! 💻 Kaisa chal raha hai project? Main aaj aapki coding, security, ya marketing mein kaise madad kar sakti hoon?"
+                             if display else f"Namaste! Main Sarla AI hoon 💻 Bataiye aaj kis technical domain ya project par kaam karna hai?")
+
                 self._log("user", user_input)
                 self._log("sarla", reply)
                 return reply

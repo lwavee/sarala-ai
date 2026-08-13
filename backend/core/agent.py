@@ -91,7 +91,7 @@ class Agent:
             return {"type": "command", "action": "search_google", "target": q}
 
         # ---- Chat Intents ----
-        if text in ["hello", "hi", "hey", "namaste"]:
+        if text in ["hello", "hi", "hy", "hie", "hey", "namaste", "helloo", "heyya", "kaise ho", "kya kar rahi ho", "kaise ho aap"]:
             return {"type": "chat", "action": "greet"}
         
         if text in ["hmm", "acha", "okay", "ok", "haan", "nahi"]:
