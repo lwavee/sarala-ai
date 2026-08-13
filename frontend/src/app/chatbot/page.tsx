@@ -27,8 +27,19 @@ export default function ChatbotPage() {
       const mode = localStorage.getItem("sarla_theme_mode") || "dark";
       setThemeMode(mode);
     };
+
+    const handleNewChat = () => {
+      setMessages([
+        { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
+      ]);
+    };
+
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener("sarla_new_chat", handleNewChat);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("sarla_new_chat", handleNewChat);
+    };
   }, []);
 
   const scrollToBottom = () => {
@@ -44,6 +55,18 @@ export default function ChatbotPage() {
 
     const currentMode = localStorage.getItem("sarla_theme_mode") || themeMode;
 
+    // Get user session
+    let userName = "";
+    let userNickname = "";
+    const sessionStr = localStorage.getItem("sarla_user_session");
+    if (sessionStr) {
+      try {
+        const sess = JSON.parse(sessionStr);
+        userName = sess.name || "";
+        userNickname = sess.nickname || "";
+      } catch (e) {}
+    }
+
     const userMessage: Message = { id: Date.now().toString(), role: "user", text: input };
     setMessages(prev => [...prev, userMessage]);
     setInput("");
@@ -54,7 +77,12 @@ export default function ChatbotPage() {
       const res = await fetch(`${apiUrl}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.text, theme_mode: currentMode })
+        body: JSON.stringify({ 
+          message: userMessage.text, 
+          theme_mode: currentMode,
+          user_name: userName,
+          user_nickname: userNickname
+        })
       });
       
       const data = await res.json();

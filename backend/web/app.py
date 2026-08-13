@@ -39,15 +39,37 @@ if os.path.exists(static_dir):
 brain = Brain()
 
 # ── Models ───────────────────────────────────────────────────────────────────
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class SignupRequest(BaseModel):
+    name: str
+    nickname: str = ""
+    email: str
+    password: str
+
 class ChatRequest(BaseModel):
     message: str
     theme_mode: str = "dark"
+    user_name: str = ""
+    user_nickname: str = ""
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/")
 async def index():
     """Serve the main chat UI."""
     return FileResponse(os.path.join(static_dir, "index.html"))
+
+@app.post("/api/login")
+async def login(req: LoginRequest):
+    result = brain.memory.authenticate_user(req.email, req.password)
+    return JSONResponse(result)
+
+@app.post("/api/signup")
+async def signup(req: SignupRequest):
+    result = brain.memory.register_user(req.name, req.nickname, req.email, req.password)
+    return JSONResponse(result)
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
@@ -56,17 +78,21 @@ async def chat(req: ChatRequest):
     if not msg:
         return JSONResponse({"response": "Kuch to boliye 😊"})
     
-    logger.info(f"User Request: {msg[:50]}... (Theme Mode: {req.theme_mode})")
+    logger.info(f"User Request: {msg[:50]}... (User: {req.user_name}, Theme Mode: {req.theme_mode})")
     try:
-        response = brain.process_input(msg, theme_mode=req.theme_mode)
+        response = brain.process_input(
+            msg, 
+            theme_mode=req.theme_mode, 
+            user_name=req.user_name, 
+            user_nickname=req.user_nickname
+        )
         logger.info("Sarla responded successfully.")
         return JSONResponse({"response": response})
     except Exception as e:
         logger.error(f"Chat Endpoint Error: {str(e)}")
-        # Provide a user-friendly error message as requested
         return JSONResponse({
             "response": "Maaf kijiye, server busy hai ya kuch technical issue hai. Dobara try karein 😊"
-        }, status_code=200) # Keep 200 for frontend stability, error in payload
+        }, status_code=200)
 
 
 @app.get("/health")

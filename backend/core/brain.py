@@ -34,10 +34,16 @@ class Brain:
         self.knowledge.index_documents()
         self._awaiting_name = False  # Multi-turn state flag
 
-    def process_input(self, user_input: str, theme_mode: str = "dark") -> str:
+    def process_input(self, user_input: str, theme_mode: str = "dark", user_name: str = "", user_nickname: str = "") -> str:
         text = user_input.strip()
         if not text:
             return "Kuch to boliye yaar! 😄"
+
+        # Save session user info to memory if provided
+        if user_name:
+            self.memory.remember("user_name", user_name)
+        if user_nickname:
+            self.memory.remember("user_nickname", user_nickname)
 
         # ---- Multi-turn: waiting for name after "mera naam yaad rakh" ----
         if self._awaiting_name:

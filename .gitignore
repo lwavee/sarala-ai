@@ -6,6 +6,8 @@
 backend/.env
 frontend/.env.local
 frontend/.env*.local
+users.json
+backend/users.json
 
 # Python
 __pycache__/

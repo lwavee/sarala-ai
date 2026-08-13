@@ -16,16 +16,29 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
+DEFAULT_USERS = {
+    "loharavee@gmail.com": {
+        "name": "Naveen",
+        "nickname": "avee",
+        "email": "loharavee@gmail.com",
+        "password": "Sarla@123",
+        "is_naveen": True
+    }
+}
+
 class MemoryStorage:
     """
-    Handles both:
-    - Long-term personal memory: key-value pairs saved permanently to Supabase (fallback to memory.json)
-    - Short-term chat memory: temporary chat history in RAM auto-deleting entries older than 24 hours
+    Handles:
+    - User Authentication & Profiles (Naveen pre-seeded + new signups)
+    - Long-term personal memory: saved permanently to Supabase (fallback to memory.json)
+    - Short-term chat memory: auto-deletes entries older than 24 hours
     """
-    def __init__(self, filepath="memory.json", max_history=10):
+    def __init__(self, filepath="memory.json", users_filepath="users.json", max_history=10):
         self.filepath = filepath
+        self.users_filepath = users_filepath
         self.max_history = max_history
         self.data = {}          # Long-term personal memory cache
+        self.users = {}         # Registered users cache
         self.chat_history = []  # Short-term in-memory conversation log
         self.supabase = None
         
@@ -49,6 +62,73 @@ class MemoryStorage:
                 self.use_supabase = False
                 
         self.load()
+        self.load_users()
+
+    # ---- User Accounts & Authentication ----
+    def load_users(self):
+        self.users = dict(DEFAULT_USERS)
+        if os.path.exists(self.users_filepath):
+            try:
+                with open(self.users_filepath, "r") as f:
+                    saved_users = json.load(f)
+                    self.users.update(saved_users)
+            except Exception as e:
+                logger.error(f"Failed to load users: {e}")
+
+    def save_users(self):
+        try:
+            with open(self.users_filepath, "w") as f:
+                json.dump(self.users, f, indent=4)
+        except Exception as e:
+            logger.error(f"Failed to save users: {e}")
+
+    def authenticate_user(self, email: str, password: str):
+        email_clean = email.strip().lower()
+        user = self.users.get(email_clean)
+        if user and user.get("password") == password:
+            is_naveen = (email_clean == "loharavee@gmail.com" or user.get("name", "").lower() == "naveen")
+            return {
+                "success": True,
+                "user": {
+                    "name": user.get("name", "User"),
+                    "nickname": user.get("nickname", ""),
+                    "email": email_clean,
+                    "is_naveen": is_naveen
+                }
+            }
+        return {"success": False, "message": "Invalid email or password"}
+
+    def register_user(self, name: str, nickname: str, email: str, password: str):
+        email_clean = email.strip().lower()
+        if email_clean in self.users:
+            return {"success": False, "message": "Email is already registered"}
+        
+        is_naveen = (email_clean == "loharavee@gmail.com" or name.strip().lower() == "naveen")
+        new_user = {
+            "name": name.strip().title(),
+            "nickname": nickname.strip().lower(),
+            "email": email_clean,
+            "password": password,
+            "is_naveen": is_naveen
+        }
+        self.users[email_clean] = new_user
+        self.save_users()
+
+        if self.use_supabase:
+            try:
+                self.supabase.table("users").upsert(new_user).execute()
+            except Exception as e:
+                logger.error(f"Failed to save new user to Supabase: {e}")
+
+        return {
+            "success": True,
+            "user": {
+                "name": new_user["name"],
+                "nickname": new_user["nickname"],
+                "email": email_clean,
+                "is_naveen": is_naveen
+            }
+        }
 
     # ---- Permanent Personal Memory (Supabase) ----
     def load(self):
@@ -80,20 +160,17 @@ class MemoryStorage:
         
         if self.use_supabase:
             try:
-                # Upsert into memories table in Supabase
                 self.supabase.table("memories").upsert({"key": key, "value": value}).execute()
                 logger.info(f"Saved memory '{key}' permanently to Supabase.")
             except Exception as e:
                 logger.error(f"Failed to save memory to Supabase: {e}")
                 
-        self.save() # Always save locally as backup
+        self.save()
 
     def recall(self, key):
-        """Retrieve a long-term personal fact by key"""
         return self.data.get(key, None)
 
     def get_all_facts(self) -> str:
-        """Summary string of all known personal facts, to inject into LLM context"""
         if not self.data:
             return ""
         lines = [f"{k}: {v}" for k, v in self.data.items()]
@@ -101,7 +178,6 @@ class MemoryStorage:
 
     # ---- Temporary Chat Memory (Auto-deletes after 24 hours) ----
     def _purge_expired_history(self):
-        """Remove chat messages older than 24 hours (86400 seconds)"""
         now = time.time()
         twenty_four_hours = 86400
         self.chat_history = [
@@ -110,14 +186,12 @@ class MemoryStorage:
         ]
 
     def add_to_history(self, role: str, text: str):
-        """Add a message to temporary chat history with timestamp"""
         self._purge_expired_history()
         self.chat_history.append({"role": role, "text": text, "timestamp": time.time()})
         if len(self.chat_history) > self.max_history:
             self.chat_history = self.chat_history[-self.max_history:]
 
     def get_history_context(self) -> str:
-        """Format temporary chat history as a context block for LLM"""
         self._purge_expired_history()
         if not self.chat_history:
             return ""
