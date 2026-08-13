@@ -1,6 +1,12 @@
 import os
 import time
+from dotenv import load_dotenv
 from core.logger import logger
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv()
 
 try:
     from google import genai
@@ -13,26 +19,34 @@ except ImportError:
 class LLMEngine:
     """
     Core LLM Engine for Sarla.
-    Coordinates between Google Gemini (Primary) and Groq (Fallback).
+    Coordinates between Google Gemini (Primary), OpenAI (Secondary), and Groq (Fallback).
     Includes logging, robust error handling, and Vision/Personality integration.
     """
 
     def __init__(self):
-        # API Keys (Loaded from env variables to prevent secret leakage)
+        # API Keys (Loaded from env variables)
         self.api_key = os.getenv("GEMINI_API_KEY", "")
+        self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self.groq_key = os.getenv("GROQ_API_KEY", "")
         self.client = None
+        self.openai_client = None
         self.vision_config = self._load_vision()
         self.personality = self._build_personality()
         
-        try:
-            from google import genai
-            self.client = genai.Client(api_key=self.api_key)
-            logger.info("Gemini Client initialized.")
-        except ImportError:
-            logger.error("google-genai install nahi hai 😊 Run: pip install google-genai")
-        except Exception as e:
-            logger.error(f"Gemini Init Error: {e}")
+        if HAS_GENAI and self.api_key:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+                logger.info("Gemini Client initialized.")
+            except Exception as e:
+                logger.error(f"Gemini Init Error: {e}")
+
+        if self.openai_key:
+            try:
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=self.openai_key)
+                logger.info("OpenAI Client initialized.")
+            except Exception as e:
+                logger.error(f"OpenAI Init Error: {e}")
 
     def _load_vision(self):
         import json
@@ -72,9 +86,9 @@ class LLMEngine:
             if not self.client:
                 raise Exception("Gemini client not available")
 
-            # Primary Attempt: Gemini 2.0 Flash Lite (Fast & Smart)
+            # Primary Attempt: Gemini 2.0 Flash
             response = self.client.models.generate_content(
-                model="gemini-2.0-flash-lite",
+                model="gemini-2.0-flash",
                 contents=prompt
             )
             
