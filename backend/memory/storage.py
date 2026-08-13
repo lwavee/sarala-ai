@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import logging
 from dotenv import load_dotenv
 
@@ -18,13 +19,13 @@ load_dotenv()
 class MemoryStorage:
     """
     Handles both:
-    - Long-term memory: key-value pairs saved to Supabase (fallback to memory.json)
-    - Short-term memory: last N chat messages kept in RAM for LLM context
+    - Long-term personal memory: key-value pairs saved permanently to Supabase (fallback to memory.json)
+    - Short-term chat memory: temporary chat history in RAM auto-deleting entries older than 24 hours
     """
     def __init__(self, filepath="memory.json", max_history=10):
         self.filepath = filepath
         self.max_history = max_history
-        self.data = {}          # Long-term memory cache
+        self.data = {}          # Long-term personal memory cache
         self.chat_history = []  # Short-term in-memory conversation log
         self.supabase = None
         
@@ -49,17 +50,17 @@ class MemoryStorage:
                 
         self.load()
 
-    # ---- Long-Term Memory ----
+    # ---- Permanent Personal Memory (Supabase) ----
     def load(self):
         if self.use_supabase:
             try:
                 response = self.supabase.table("memories").select("*").execute()
                 for row in response.data:
                     self.data[row["key"]] = row["value"]
-                logger.info(f"Loaded {len(self.data)} memories from Supabase.")
+                logger.info(f"Loaded {len(self.data)} permanent memories from Supabase.")
                 return
             except Exception as e:
-                logger.error(f"Failed to load from Supabase, falling back to local: {e}")
+                logger.error(f"Failed to load from Supabase, falling back to local memory.json: {e}")
                 self.use_supabase = False
                 
         if os.path.exists(self.filepath):
@@ -70,44 +71,54 @@ class MemoryStorage:
                 self.data = {}
 
     def save(self):
-        # Local save only needed if not using Supabase, or as backup
         with open(self.filepath, "w") as f:
             json.dump(self.data, f, indent=4)
 
     def remember(self, key, value):
-        """Save a long-term fact (e.g. user_name = 'Naveen')"""
+        """Save a long-term personal fact permanently (e.g. user_name = 'Naveen')"""
         self.data[key] = value
         
         if self.use_supabase:
             try:
-                # Upsert into memories table
+                # Upsert into memories table in Supabase
                 self.supabase.table("memories").upsert({"key": key, "value": value}).execute()
+                logger.info(f"Saved memory '{key}' permanently to Supabase.")
             except Exception as e:
                 logger.error(f"Failed to save memory to Supabase: {e}")
                 
         self.save() # Always save locally as backup
 
     def recall(self, key):
-        """Retrieve a long-term fact by key"""
+        """Retrieve a long-term personal fact by key"""
         return self.data.get(key, None)
 
     def get_all_facts(self) -> str:
-        """Summary string of all known facts, to inject into LLM context"""
+        """Summary string of all known personal facts, to inject into LLM context"""
         if not self.data:
             return ""
         lines = [f"{k}: {v}" for k, v in self.data.items()]
-        return "Known facts: " + ", ".join(lines)
+        return "Known personal facts: " + ", ".join(lines)
 
-    # ---- Short-Term Chat History ----
+    # ---- Temporary Chat Memory (Auto-deletes after 24 hours) ----
+    def _purge_expired_history(self):
+        """Remove chat messages older than 24 hours (86400 seconds)"""
+        now = time.time()
+        twenty_four_hours = 86400
+        self.chat_history = [
+            m for m in self.chat_history 
+            if now - m.get("timestamp", now) < twenty_four_hours
+        ]
+
     def add_to_history(self, role: str, text: str):
-        """Add a message to short-term conversation memory"""
-        self.chat_history.append({"role": role, "text": text})
-        # Keep only last max_history messages
+        """Add a message to temporary chat history with timestamp"""
+        self._purge_expired_history()
+        self.chat_history.append({"role": role, "text": text, "timestamp": time.time()})
         if len(self.chat_history) > self.max_history:
             self.chat_history = self.chat_history[-self.max_history:]
 
     def get_history_context(self) -> str:
-        """Format short-term chat history as a context block for LLM"""
+        """Format temporary chat history as a context block for LLM"""
+        self._purge_expired_history()
         if not self.chat_history:
             return ""
         lines = [f"{m['role'].capitalize()}: {m['text']}" for m in self.chat_history]

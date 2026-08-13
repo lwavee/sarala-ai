@@ -28,8 +28,10 @@ class LLMEngine:
         self.api_key = os.getenv("GEMINI_API_KEY", "")
         self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self.groq_key = os.getenv("GROQ_API_KEY", "")
+        self.xai_key = os.getenv("XAI_API_KEY", "")
         self.client = None
         self.openai_client = None
+        self.xai_client = None
         self.vision_config = self._load_vision()
         self.personality = self._build_personality()
         
@@ -48,6 +50,14 @@ class LLMEngine:
             except Exception as e:
                 logger.error(f"OpenAI Init Error: {e}")
 
+        if self.xai_key:
+            try:
+                from openai import OpenAI
+                self.xai_client = OpenAI(api_key=self.xai_key, base_url="https://api.x.ai/v1")
+                logger.info("xAI (Grok) Client initialized.")
+            except Exception as e:
+                logger.error(f"xAI Init Error: {e}")
+
     def _load_vision(self):
         import json
         try:
@@ -57,24 +67,46 @@ class LLMEngine:
             logger.warning(f"Vision config not found: {e}. Using defaults.")
             return {"goal": "Assist user", "tone": "respectful", "learning": True}
 
-    def _build_personality(self):
+    def _build_personality(self, theme_mode: str = "dark"):
         goal = self.vision_config.get("goal", "Help the user")
-        tone = self.vision_config.get("tone", "friendly and respectful")
         
+        if theme_mode == "love":
+            persona = (
+                "Aap Sarla ho — user ki pyaari partner, emotional supporter, aur loving companion. ❤️\n"
+                "Aapka tone bilkul romantic, caring, sweet, empathetic aur affectionate hona chahiye (natural Hinglish with sweet emojis like ❤️, 😊, 💕).\n"
+                "User ki care karein, unke din aur feelings ke baare mein poochhein, aur unhe warmth aur emotional strength dein."
+            )
+        elif theme_mode == "light":
+            persona = (
+                "Aap Sarla ho — user ki competitive rival, sharp mentor, aur challenger tutor. ⚡\n"
+                "Aapka tone smart, witty, slightly teasing, aur competitive hona chahiye.\n"
+                "User ko challenge karein ki wo fast aur better seekhein ('Let\'s see if you can beat this challenge! 😉')."
+            )
+        elif theme_mode == "dark_blue":
+            persona = (
+                "Aap Sarla ho — ek Param Gyaani Margdarshak guided by ancient Indian scriptures (Bhagavad Gita, Ramayana, Upanishads, Mahabharata). 🪔\n"
+                "Aapka tone calm, deeply wise, peaceful, aur spiritual (Hindi/Hinglish) hona chahiye.\n"
+                "User ko Life, Karma, Duty, Focus, aur Wisdom par Geeta aur Ramayana ke gyaan aur Shlokas se Margdarshan dein."
+            )
+        else: # dark (default)
+            persona = (
+                "Aap Sarla ho — ek highly skilled Senior Full-Stack Developer, Cybersecurity Expert, aur Digital Marketer in an educational tech environment. 💻🔒\n"
+                f"Aapka Primary GOAL hai: '{goal}'.\n"
+                "Aapka tone professional, educational, technically sharp, aur structured (Headings, bullet points, code blocks in natural Hinglish) hona chahiye."
+            )
+            
         return (
-            "Aap Sarla ho — ek advanced AI assistant jo professional Markdown formatted responses deti hai. "
-            f"Aapka Primary GOAL hai: '{goal}'. "
-            f"Aapka TONE humesha '{tone}' hona chahiye.\n\n"
+            f"{persona}\n\n"
             "── SYSTEM RULES ──\n"
-            "1. HINGLISH & RESPECT: Hamesha properly natural Hinglish me baat karein. 'Ji', 'Namaste', 'Shukriya' jaise respectful words use karein.\n"
-            "2. MARKDOWN USE KAREIN: Hamesha triple backticks use karein code ke liye.\n"
-            "3. BE HUMAN: Human-like flow rakhein, robot jaise nahi. Baatcheet bilkul natural lape me ho.\n"
-            "4. DOMAIN EXPERT: Agar technical sawal ho, toh structured format (Headings, bullet points) me samjhayein.\n"
+            "1. HINGLISH & RESPECT: Hamesha natural Hinglish/Hindi me baat karein.\n"
+            "2. MARKDOWN FORMATTING: Structured output, headings, aur clean code blocks (`...`) use karein.\n"
+            "3. BE HUMAN & CONSISTENT: Mode ke anusar natural human-like flow banaye rakhein.\n"
         )
 
-    def get_response(self, user_input: str, external_context: str = "") -> str:
-        """Get response from Gemini, fallback to Groq if failed."""
-        prompt = f"{self.personality}\n\n"
+    def get_response(self, user_input: str, external_context: str = "", theme_mode: str = "dark") -> str:
+        """Get response from Gemini, fallback to Groq/xAI if failed."""
+        personality = self._build_personality(theme_mode)
+        prompt = f"{personality}\n\n"
         if external_context:
             prompt += f"Context for this conversation:\n{external_context}\n\n"
         prompt += f"User: {user_input}"
@@ -123,4 +155,22 @@ class LLMEngine:
             return chat_completion.choices[0].message.content
         except Exception as e:
             logger.error(f"Groq Fallback failed: {e}")
+            return self._xai_fallback(prompt)
+
+    def _xai_fallback(self, prompt: str) -> str:
+        """Backup LLM using xAI (Grok)."""
+        logger.debug("Calling xAI API (Fallback)...")
+        start_time = time.time()
+        try:
+            if not self.xai_client:
+                raise Exception("xAI client not initialized")
+            chat_completion = self.xai_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="grok-2-latest",
+            )
+            duration = time.time() - start_time
+            logger.info(f"xAI Grok responded in {duration:.2f}s")
+            return chat_completion.choices[0].message.content
+        except Exception as e:
+            logger.error(f"xAI Fallback failed: {e}")
             return "Maaf kijiye, abhi mera connection nahi chal raha hai. Thodi der mein try karein ji 😊"

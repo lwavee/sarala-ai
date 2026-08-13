@@ -41,6 +41,7 @@ brain = Brain()
 # ── Models ───────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
+    theme_mode: str = "dark"
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/")
@@ -55,9 +56,9 @@ async def chat(req: ChatRequest):
     if not msg:
         return JSONResponse({"response": "Kuch to boliye 😊"})
     
-    logger.info(f"User Request: {msg[:50]}...")
+    logger.info(f"User Request: {msg[:50]}... (Theme Mode: {req.theme_mode})")
     try:
-        response = brain.process_input(msg)
+        response = brain.process_input(msg, theme_mode=req.theme_mode)
         logger.info("Sarla responded successfully.")
         return JSONResponse({"response": response})
     except Exception as e:

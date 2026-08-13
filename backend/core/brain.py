@@ -34,7 +34,7 @@ class Brain:
         self.knowledge.index_documents()
         self._awaiting_name = False  # Multi-turn state flag
 
-    def process_input(self, user_input: str) -> str:
+    def process_input(self, user_input: str, theme_mode: str = "dark") -> str:
         text = user_input.strip()
         if not text:
             return "Kuch to boliye yaar! 😄"
@@ -107,7 +107,7 @@ class Brain:
 
         # ---- Search (RAG Domain) ----
         if intent_type == "search":
-            return self._llm_fallback(user_input, domain=domain)
+            return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode)
 
         # ---- Chat ----
         if intent_type == "chat":
@@ -140,7 +140,7 @@ class Brain:
             
             else:
                 # Unknown or other chat actions → LLM with full context + RAG
-                return self._llm_fallback(user_input, domain=domain)
+                return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode)
 
         return "Kuch samajh nahi aaya 😅 Dobara bolein?"
 
@@ -180,7 +180,7 @@ class Brain:
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
 
-    def _llm_fallback(self, user_input: str, domain: str = None) -> str:
+    def _llm_fallback(self, user_input: str, domain: str = None, theme_mode: str = "dark") -> str:
         """Build rich context from memory + RAG and pass to LLM."""
         self._log("user", user_input)
 
@@ -211,7 +211,7 @@ class Brain:
             
         context = "\n".join(context_parts)
 
-        reply = self.llm.get_response(user_input, external_context=context)
+        reply = self.llm.get_response(user_input, external_context=context, theme_mode=theme_mode)
         
         # Add RAG source indicator if it was used
         if used_rag:
