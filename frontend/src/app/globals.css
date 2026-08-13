@@ -23,10 +23,10 @@ body.mode-dark {
 }
 
 body.mode-love {
-  --background: #180912;
+  --background: #1a0815;
   --foreground: #f472b6;
-  --surface: rgba(244, 114, 182, 0.1);
-  --border: rgba(244, 114, 182, 0.3);
+  --surface: rgba(244, 114, 182, 0.12);
+  --border: rgba(244, 114, 182, 0.35);
 }
 
 body.mode-light {
@@ -100,4 +100,47 @@ body {
 
 .animate-pulse-glow {
   animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Floating Heart Particles Animation */
+@keyframes floatUp {
+  0% {
+    transform: translateY(105vh) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-10vh) scale(1.2) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.floating-heart {
+  position: fixed;
+  bottom: -20px;
+  pointer-events: none;
+  z-index: 5;
+  animation: floatUp 7s linear infinite;
+  filter: drop-shadow(0 0 12px rgba(244, 114, 182, 0.8));
+}
+
+/* Ambient Love Wave Gradient Animation */
+@keyframes loveWave {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.love-wave-bg {
+  background: linear-gradient(-45deg, #180915, #360a27, #1c0515, #440b32);
+  background-size: 400% 400%;
+  animation: loveWave 12s ease infinite;
 }

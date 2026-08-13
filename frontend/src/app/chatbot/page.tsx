@@ -23,7 +23,6 @@ export default function ChatbotPage() {
     const activeMode = localStorage.getItem("sarla_theme_mode") || "dark";
     setThemeMode(activeMode);
 
-    // Listen for storage changes if user switches mode in settings modal
     const handleStorage = () => {
       const mode = localStorage.getItem("sarla_theme_mode") || "dark";
       setThemeMode(mode);
@@ -100,10 +99,54 @@ export default function ChatbotPage() {
   const currentBadge = modeBadges[themeMode] || modeBadges.dark;
   const BadgeIcon = currentBadge.icon;
 
+  const floatingHeartElements = [
+    { id: 1, left: "10%", size: "18px", delay: "0s", duration: "7s", emoji: "💕" },
+    { id: 2, left: "25%", size: "24px", delay: "2s", duration: "9s", emoji: "💖" },
+    { id: 3, left: "40%", size: "16px", delay: "4s", duration: "6s", emoji: "💗" },
+    { id: 4, left: "55%", size: "22px", delay: "1s", duration: "8s", emoji: "❤️" },
+    { id: 5, left: "70%", size: "20px", delay: "3s", duration: "7.5s", emoji: "💓" },
+    { id: 6, left: "85%", size: "26px", delay: "5s", duration: "9.5s", emoji: "🥰" },
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-transparent p-4 md:p-8">
+    <div className={`flex flex-col h-full relative overflow-hidden p-4 md:p-8 ${themeMode === "love" ? "love-wave-bg" : "bg-transparent"}`}>
+      
+      {/* Love Theme Special Background Visuals */}
+      {themeMode === "love" && (
+        <>
+          {/* Lightly Blended Partner Photo Background */}
+          <div className="absolute right-0 top-0 bottom-0 w-full md:w-1/2 pointer-events-none z-0 overflow-hidden opacity-25 transition-all duration-700">
+            <img 
+              src="/sarla_partner.jpg" 
+              alt="Sarla Partner" 
+              className="w-full h-full object-cover object-center filter contrast-125 brightness-110 mask-gradient" 
+              style={{
+                maskImage: "linear-gradient(to left, rgba(0,0,0,1) 30%, transparent 100%)",
+                WebkitMaskImage: "linear-gradient(to left, rgba(0,0,0,1) 30%, transparent 100%)"
+              }}
+            />
+          </div>
+
+          {/* Running Floating Hearts Animation */}
+          {floatingHeartElements.map((h) => (
+            <span
+              key={h.id}
+              className="floating-heart"
+              style={{
+                left: h.left,
+                fontSize: h.size,
+                animationDelay: h.delay,
+                animationDuration: h.duration,
+              }}
+            >
+              {h.emoji}
+            </span>
+          ))}
+        </>
+      )}
+
       {/* Header */}
-      <header className="glass rounded-2xl p-4 flex items-center justify-between mb-6 animate-fade-in z-10 border border-white/10">
+      <header className="glass rounded-2xl p-4 flex items-center justify-between mb-6 animate-fade-in z-10 border border-white/10 relative">
         <div className="flex items-center gap-4">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-500 via-indigo-500 to-cyan-400 p-0.5 shadow-lg flex items-center justify-center animate-pulse-glow">
             <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
@@ -127,7 +170,7 @@ export default function ChatbotPage() {
       </header>
 
       {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-6 animate-fade-in pb-4">
+      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-6 animate-fade-in pb-4 z-10 relative">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl ${
@@ -153,7 +196,7 @@ export default function ChatbotPage() {
       </div>
 
       {/* Input Area */}
-      <div className="mt-4 animate-fade-in">
+      <div className="mt-4 animate-fade-in z-10 relative">
         <div className="glass rounded-full p-2 flex items-center gap-2 border border-white/15 bg-black/60 shadow-2xl">
           <button 
             onClick={toggleRecording}

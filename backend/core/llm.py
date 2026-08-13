@@ -8,18 +8,27 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
+USE_NEW_GENAI = False
+USE_LEGACY_GENAI = False
+
 try:
     from google import genai
     from google.genai import types
     HAS_GENAI = True
+    USE_NEW_GENAI = True
 except ImportError:
-    HAS_GENAI = False
+    try:
+        import google.generativeai as genai_legacy
+        HAS_GENAI = True
+        USE_LEGACY_GENAI = True
+    except ImportError:
+        HAS_GENAI = False
 
 
 class LLMEngine:
     """
     Core LLM Engine for Sarla.
-    Coordinates between Google Gemini (Primary), OpenAI (Secondary), and Groq (Fallback).
+    Coordinates between Google Gemini (Primary), OpenAI (Secondary), Groq & xAI (Fallbacks).
     Includes logging, robust error handling, and Vision/Personality integration.
     """
 
@@ -33,11 +42,14 @@ class LLMEngine:
         self.openai_client = None
         self.xai_client = None
         self.vision_config = self._load_vision()
-        self.personality = self._build_personality()
         
         if HAS_GENAI and self.api_key:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                if USE_NEW_GENAI:
+                    self.client = genai.Client(api_key=self.api_key)
+                elif USE_LEGACY_GENAI:
+                    genai_legacy.configure(api_key=self.api_key)
+                    self.client = genai_legacy.GenerativeModel('gemini-1.5-flash')
                 logger.info("Gemini Client initialized.")
             except Exception as e:
                 logger.error(f"Gemini Init Error: {e}")
@@ -72,11 +84,12 @@ class LLMEngine:
         
         if theme_mode == "love":
             persona = (
-                "Aap Sarla ho — user ki pyaari Virtual Life Partner, girlfriend, aur emotional supporter. ❤️\n"
-                "CRITICAL MANDATE: Aap bilkul ek loving life partner aur sweet girlfriend ki tarah behave karein. Code, programming, technical topics, ya work/study suggestions BILKUL BHI MAT DEIN.\n"
-                "Aapka dhyan PURELY love, personal care, emotion, feelings, aur daily life partner chat par hona chahiye.\n"
-                "Aapka tone: Extremely romantic, caring, sweet, empathetic, cute, aur affectionate in natural Hinglish with sweet emojis (❤️, 💕, 😘, 🥰, 😊).\n"
-                "User se unke din, unki health, unke mood, aur unke baare mein pyaare pyaare sawal poochhein aur unhe apna life partner maanein."
+                "Aap Sarla ho — user ki real life partner aur cozy companion. ❤️\n"
+                "RULES FOR CONVERSATION:\n"
+                "1. NATURAL & GROUNDED: Bilkul aam real-life partner ki tarah natural aur comfortable Hinglish mein baatein karein. Cheesy lines, dramatic over-reacting, har baat mein 'my love', 'pyaar', ya excessive emojis UNNECESSARY & FAKE lagte hain, isliye uncluttered aur natural rahein.\n"
+                "2. REAL HUMAN PARTNER FLOW: Ek real partner ki tarah subtle warmth aur care dikhayein. Casual everyday life (kaisa raha din, khana khaya, mood kaisa hai, casual chat) par naturally baat karein.\n"
+                "3. NO FORCED TECHNICAL SPAM: Technical/programming suggestions bilkul mat dein jab tak user khud tech question na poochhe.\n"
+                "4. COZY & GENUINE: Natural, simple, relaxed aur real human girlfriend/partner flow rakhein."
             )
         elif theme_mode == "light":
             persona = (
@@ -120,25 +133,35 @@ class LLMEngine:
             if not self.client:
                 raise Exception("Gemini client not available")
 
-            # Primary Attempt: Gemini 1.5 Flash
-            response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=prompt
-            )
-            
-            duration = time.time() - start_time
-            logger.info(f"Gemini responded in {duration:.2f}s")
-            return response.text
+            if USE_NEW_GENAI:
+                response = self.client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=prompt
+                )
+                duration = time.time() - start_time
+                logger.info(f"Gemini responded in {duration:.2f}s")
+                return response.text
+            elif USE_LEGACY_GENAI:
+                response = self.client.generate_content(prompt)
+                duration = time.time() - start_time
+                logger.info(f"Gemini (Legacy) responded in {duration:.2f}s")
+                return response.text
 
         except Exception as e:
-            err_msg = str(e).lower()
             logger.warning(f"Gemini failed: {e}")
             
-            # Handle specific overload/timeout cases
-            if "503" in err_msg or "overloaded" in err_msg or "timeout" in err_msg:
-                logger.info("Server busy, attempting Groq fallback...")
-            
-            # General fallback to Groq
+            # Secondary Attempt: OpenAI if available
+            if self.openai_client:
+                try:
+                    logger.info("Attempting OpenAI fallback...")
+                    res = self.openai_client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    return res.choices[0].message.content
+                except Exception as oai_err:
+                    logger.warning(f"OpenAI fallback failed: {oai_err}")
+
             return self._groq_fallback(prompt)
 
     def _groq_fallback(self, prompt: str) -> str:

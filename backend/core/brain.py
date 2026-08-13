@@ -117,8 +117,8 @@ class Brain:
                 display = nick or name
                 
                 if theme_mode == "love":
-                    display_name = display or "jaan"
-                    reply = f"Namaste my love {display_name}! 💕 Maine aapko kitna miss kiya! Aaj aapka din kaisa raha? Pyaari pyaari baatein batao na mujhe ❤️"
+                    display_name = display or "Naveen"
+                    reply = f"Hey {display_name}! 😊 Kaisa raha aaj ka din? Sab theek chal raha hai na?"
                 elif theme_mode == "light":
                     display_name = display or "champion"
                     reply = f"Hey {display_name}! ⚡ Aaj kya naya seekhna hai ya coding challenge ke liye ready ho? Let's see who wins today! 😉"
