@@ -1,22 +1,12 @@
-# Core Framework & Web Server
 fastapi
 uvicorn
 pydantic
 python-dotenv
 python-multipart
 requests
-
-# LLM Engines & AI Clients
 google-genai
 google-generativeai
 openai
 groq
 boto3
-
-# Database & Memory
 supabase
-
-# Voice & Speech Interface (Optional / Desktop Features)
-edge-tts
-pygame
-SpeechRecognition
