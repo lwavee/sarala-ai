@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Mic, MicOff, Sparkles, Heart, Shield, BookOpen, Bot } from "lucide-react";
+import { 
+  Send, Mic, MicOff, Sparkles, Heart, Shield, BookOpen, Bot, 
+  Volume2, VolumeX, Radio, Video
+} from "lucide-react";
 
 interface Message {
   id: string;
@@ -17,6 +20,11 @@ export default function ChatbotPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [themeMode, setThemeMode] = useState<string>("dark");
+  
+  // Real Human Voice Assistant States
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,6 +37,8 @@ export default function ChatbotPage() {
     };
 
     const handleNewChat = () => {
+      window.speechSynthesis?.cancel();
+      setIsSpeaking(false);
       setMessages([
         { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
       ]);
@@ -36,9 +46,18 @@ export default function ChatbotPage() {
 
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sarla_new_chat", handleNewChat);
+
+    // Warm up speech synthesis voices
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.getVoices();
+    }
+
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sarla_new_chat", handleNewChat);
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
 
@@ -50,12 +69,126 @@ export default function ChatbotPage() {
     scrollToBottom();
   }, [messages]);
 
+  // Clean text for speech output (strip emojis & markdown formatting)
+  const cleanTextForSpeech = (rawText: string) => {
+    return rawText
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/#(.*?)\n/g, "$1")
+      .replace(/`(.*?)`/g, "$1")
+      .trim();
+  };
+
+  // Speak Sarla's response using natural female voice
+  const speakText = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    window.speechSynthesis.cancel();
+    const cleaned = cleanTextForSpeech(text);
+    if (!cleaned) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleaned);
+    const voices = window.speechSynthesis.getVoices();
+
+    // Search for best Indian / Hinglish female voice
+    const femaleVoice = voices.find(v => 
+      v.name.includes("Swara") || 
+      v.name.includes("Neerja") || 
+      v.name.includes("Google हिन्दी") ||
+      (v.name.includes("Female") && (v.lang.includes("hi") || v.lang.includes("en-IN"))) ||
+      v.lang.includes("hi-IN") ||
+      v.lang.includes("en-IN")
+    ) || voices.find(v => v.name.includes("Female")) || voices[0];
+
+    if (femaleVoice) {
+      utterance.voice = femaleVoice;
+    }
+
+    utterance.pitch = 1.05; // Slightly higher pitch for natural female voice tone
+    utterance.rate = 1.0;   // Natural speech rate
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  };
+
+  const toggleVoiceMode = () => {
+    if (isVoiceEnabled) {
+      stopSpeaking();
+      setIsVoiceEnabled(false);
+    } else {
+      setIsVoiceEnabled(true);
+    }
+  };
+
+  // Speech-to-Text (Microphone Input)
+  const toggleRecording = () => {
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input is supported in Google Chrome, Microsoft Edge, and modern browsers.");
+      return;
+    }
+
+    if (isRecording) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "hi-IN"; // Recognize Hindi & Hinglish speech
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        stopSpeaking();
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput(transcript);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsRecording(false);
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error(err);
+      setIsRecording(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim()) return;
 
     const currentMode = localStorage.getItem("sarla_theme_mode") || themeMode;
 
-    // Get user session
     let userName = "";
     let userNickname = "";
     const sessionStr = localStorage.getItem("sarla_user_session");
@@ -71,6 +204,7 @@ export default function ChatbotPage() {
     setMessages(prev => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
+    stopSpeaking();
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -86,21 +220,29 @@ export default function ChatbotPage() {
       });
       
       const data = await res.json();
+      const responseText = data.response || "Sorry, koi error aa gaya.";
       
       const sarlaMessage: Message = { 
         id: (Date.now() + 1).toString(), 
         role: "sarla", 
-        text: data.response || "Sorry, koi error aa gaya." 
+        text: responseText 
       };
       
       setMessages(prev => [...prev, sarlaMessage]);
+
+      // Speak response out loud in real female voice if enabled
+      if (isVoiceEnabled) {
+        speakText(responseText);
+      }
     } catch (error) {
       console.error(error);
+      const errMsg = "Maaf kijiye, backend se connection me problem hai. 😔";
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: "sarla",
-        text: "Maaf kijiye, backend se connection me problem hai. 😔"
+        text: errMsg
       }]);
+      if (isVoiceEnabled) speakText(errMsg);
     } finally {
       setIsLoading(false);
     }
@@ -111,10 +253,6 @@ export default function ChatbotPage() {
       e.preventDefault();
       handleSend();
     }
-  };
-
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
   };
 
   const modeBadges: Record<string, { label: string; icon: any; color: string }> = {
@@ -186,14 +324,46 @@ export default function ChatbotPage() {
               Sarla AI
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             </h2>
-            <p className="text-xs text-slate-400">Aapki Intelligent AI Assistant</p>
+            <p className="text-xs text-slate-400 flex items-center gap-1.5">
+              <span>Aapki Intelligent AI Assistant</span>
+              {isSpeaking && (
+                <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
+                  <Radio size={12} className="animate-spin" /> Speaking...
+                </span>
+              )}
+            </p>
           </div>
         </div>
 
-        {/* Active Mode Badge Indicator */}
-        <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${currentBadge.color}`}>
-          <BadgeIcon size={14} />
-          <span>{currentBadge.label}</span>
+        {/* Action Controls: Voice Toggle, Live Mode & Active Mode Badge */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_live"))}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-pink-500/20 to-indigo-500/20 border border-pink-500/50 text-pink-300 hover:text-white hover:bg-pink-500/30 text-xs font-semibold transition-all shadow-md cursor-pointer animate-pulse-glow"
+            title="Start Live Video Chat with Sarala AI Avatar"
+          >
+            <Video size={16} className="text-pink-400" />
+            <span className="font-bold">Live Mode</span>
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+          </button>
+
+          <button
+            onClick={toggleVoiceMode}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+              isVoiceEnabled 
+                ? "bg-pink-500/20 border-pink-500/50 text-pink-300 hover:bg-pink-500/30" 
+                : "bg-slate-800/60 border-white/10 text-slate-400 hover:text-white"
+            }`}
+            title={isVoiceEnabled ? "Mute Sarla's Voice Response" : "Enable Sarla's Voice Response"}
+          >
+            {isVoiceEnabled ? <Volume2 size={16} className={isSpeaking ? "animate-pulse text-pink-400" : ""} /> : <VolumeX size={16} />}
+            <span className="hidden sm:inline">{isVoiceEnabled ? "Voice ON" : "Voice OFF"}</span>
+          </button>
+
+          <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${currentBadge.color}`}>
+            <BadgeIcon size={14} />
+            <span>{currentBadge.label}</span>
+          </div>
         </div>
       </header>
 
@@ -201,12 +371,23 @@ export default function ChatbotPage() {
       <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-6 animate-fade-in pb-4 z-10 relative">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl ${
+            <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl relative group ${
               msg.role === "user" 
                 ? "bg-indigo-600 text-white rounded-br-none shadow-lg shadow-indigo-500/10" 
                 : "glass-panel text-slate-100 rounded-bl-none border border-white/10"
             }`}>
               <p className="whitespace-pre-wrap leading-relaxed text-sm">{msg.text}</p>
+              
+              {/* Speaker Re-play Icon for Sarla Messages */}
+              {msg.role === "sarla" && (
+                <button
+                  onClick={() => speakText(msg.text)}
+                  className="absolute -right-9 top-3 p-1.5 rounded-full bg-white/5 hover:bg-white/20 text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-all"
+                  title="Listen in Sarla's Voice"
+                >
+                  <Volume2 size={15} />
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -230,10 +411,10 @@ export default function ChatbotPage() {
             onClick={toggleRecording}
             className={`p-3 rounded-full transition-all ${
               isRecording 
-                ? "bg-red-500 text-white animate-pulse" 
+                ? "bg-red-500 text-white animate-bounce shadow-lg shadow-red-500/50" 
                 : "hover:bg-white/10 text-slate-400 hover:text-white"
             }`}
-            title="Toggle Voice Input"
+            title={isRecording ? "Listening... Click to stop" : "Click to Speak (Voice Input)"}
           >
             {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
@@ -243,7 +424,7 @@ export default function ChatbotPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Sarla anything..."
+            placeholder={isRecording ? "Listening to your voice..." : "Ask Sarla anything or speak..."}
             className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none px-3 text-sm"
           />
           

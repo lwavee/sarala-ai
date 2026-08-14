@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowRight, Bot, Mic, Sparkles } from "lucide-react";
+import { ArrowRight, Bot, Mic, Sparkles, Video } from "lucide-react";
 
 export default function Home() {
   return (
@@ -23,9 +25,9 @@ export default function Home() {
             <Sparkles size={20} />
             Start Chatting
           </Link>
-          <Link href="/chatbot?voice=true" className="w-full sm:w-auto px-8 py-4 glass hover:bg-white/10 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-all">
-            <Mic size={20} className="text-cyan-400" />
-            Try Voice Mode
+          <Link href="/chatbot" onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("sarla_open_live")), 300)} className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-pink-600 via-indigo-600 to-cyan-500 hover:from-pink-500 hover:to-cyan-400 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all transform hover:scale-105 shadow-[0_0_25px_rgba(236,72,153,0.4)]">
+            <Video size={20} className="text-pink-300 animate-pulse" />
+            Live Video Chat Mode
           </Link>
         </div>
       </div>

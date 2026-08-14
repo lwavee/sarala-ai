@@ -6,8 +6,10 @@ import "./globals.css";
 import Link from "next/link";
 import { 
   MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart, 
-  Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User
+  Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User,
+  Video, Radio
 } from "lucide-react";
+import LiveModeModal from "@/components/live/LiveModeModal";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,6 +27,7 @@ export default function RootLayout({
 }>) {
   const [themeMode, setThemeMode] = useState<string>("dark");
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isLiveModeOpen, setIsLiveModeOpen] = useState<boolean>(false);
   const [userSession, setUserSession] = useState<UserSession | null>(null);
   
   // Auth Modal State
@@ -51,6 +54,9 @@ export default function RootLayout({
     setThemeMode(savedMode);
     document.body.className = `${inter.className} flex h-screen overflow-hidden mode-${savedMode}`;
 
+    const handleOpenLive = () => setIsLiveModeOpen(true);
+    window.addEventListener("sarla_open_live", handleOpenLive);
+
     // Load User Session
     const savedSession = localStorage.getItem("sarla_user_session");
     if (savedSession) {
@@ -76,6 +82,10 @@ export default function RootLayout({
       setChatThreads(initialThreads);
       localStorage.setItem("sarla_chat_threads", JSON.stringify(initialThreads));
     }
+
+    return () => {
+      window.removeEventListener("sarla_open_live", handleOpenLive);
+    };
   }, []);
 
   const handleModeChange = (mode: string) => {
@@ -251,6 +261,19 @@ export default function RootLayout({
 
             {/* Nav Menu */}
             <nav className="space-y-1 mb-6">
+              <button
+                onClick={() => setIsLiveModeOpen(true)}
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Radio size={18} className="text-pink-400 animate-pulse" />
+                  <span>Live Mode</span>
+                </div>
+                <span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                  LIVE
+                </span>
+              </button>
+
               <Link
                 href="/chatbot"
                 className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
@@ -576,6 +599,15 @@ export default function RootLayout({
             </div>
           </div>
         )}
+
+        {/* Real-Time Live AI Girl Video Chat Mode Overlay */}
+        <LiveModeModal
+          isOpen={isLiveModeOpen}
+          onClose={() => setIsLiveModeOpen(false)}
+          themeMode={themeMode}
+          userName={userSession?.name}
+          userNickname={userSession?.nickname}
+        />
       </body>
     </html>
   );

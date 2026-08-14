@@ -144,3 +144,74 @@ body {
   background-size: 400% 400%;
   animation: loveWave 12s ease infinite;
 }
+
+/* ── Live Mode & Avatar Animations ────────────────────────────────────────── */
+@keyframes avatarBreathing {
+  0%, 100% {
+    transform: scale(1) translateY(0);
+  }
+  50% {
+    transform: scale(1.018) translateY(-4px);
+  }
+}
+
+@keyframes listeningPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.4), 0 0 40px rgba(56, 189, 248, 0.2);
+    border-color: rgba(56, 189, 248, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.8), 0 0 80px rgba(56, 189, 248, 0.4);
+    border-color: rgba(56, 189, 248, 1);
+  }
+}
+
+@keyframes speakingAura {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(236, 72, 153, 0.5), 0 0 50px rgba(99, 102, 241, 0.3);
+    border-color: rgba(236, 72, 153, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 50px rgba(236, 72, 153, 0.9), 0 0 100px rgba(99, 102, 241, 0.6);
+    border-color: rgba(236, 72, 153, 1);
+  }
+}
+
+@keyframes thinkingHalo {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes audioBarWave {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 24px;
+  }
+}
+
+.animate-avatar-idle {
+  animation: avatarBreathing 4.5s ease-in-out infinite;
+}
+
+.animate-avatar-listening {
+  animation: avatarBreathing 3s ease-in-out infinite, listeningPulse 2s ease-in-out infinite;
+}
+
+.animate-avatar-speaking {
+  animation: avatarBreathing 2.2s ease-in-out infinite, speakingAura 1.5s ease-in-out infinite;
+}
+
+.animate-thinking-halo {
+  animation: thinkingHalo 4s linear infinite;
+}
+
+.live-modal-bg {
+  background: radial-gradient(circle at 50% 30%, rgba(30, 27, 75, 0.95), rgba(9, 13, 22, 0.98));
+}
+
