@@ -15,12 +15,27 @@ app = FastAPI(title="Sarla AI API", version="1.0.0")
 async def startup_event():
     logger.info("Sarla Web Server is starting up...")
 
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-allowed_origins = [origin.strip() for origin in frontend_url.split(",") if origin.strip()]
-if "http://localhost:3000" not in allowed_origins:
-    allowed_origins.append("http://localhost:3000")
-if "http://127.0.0.1:3000" not in allowed_origins:
-    allowed_origins.append("http://127.0.0.1:3000")
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8008",
+    "http://127.0.0.1:8008",
+]
+
+frontend_url = os.getenv("FRONTEND_URL", "")
+if frontend_url:
+    for origin in frontend_url.split(","):
+        origin = origin.strip()
+        if origin and origin not in allowed_origins:
+            allowed_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,12 +86,30 @@ async def signup(req: SignupRequest):
     result = brain.memory.register_user(req.name, req.nickname, req.email, req.password)
     return JSONResponse(result)
 
+def classify_emotion(text: str) -> tuple:
+    lower = text.lower()
+    if any(w in lower for w in ["sad", "dukhi", "sorry", "afsos", "kharab", "galti", "warning", "danger"]):
+        return "concerned", "calmGesture"
+    if any(w in lower for w in ["congrat", "mubarak", "great", "awesome", "badhiya", "shandar", "superb", "wah"]):
+        return "excited", "excitedGesture"
+    if any(w in lower for w in ["happy", "khush", "welcome", "swagat", "namaste", "hello", "hi ", "hey", "shukriya", "thanks"]):
+        return "happy", "greetingWave"
+    if any(w in lower for w in ["let me check", "sochne do", "dekhte hain", "analyz", "calculat", "samajh"]):
+        return "thinking", "thinkingPose"
+    if any(w in lower for w in ["step", "first", "second", "code", "python", "html", "react", "tarika", "kaise"]):
+        return "friendly", "explainOneHand"
+    return "neutral", "explainOneHand"
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    """Process a user message and return Sarla's response."""
+    """Process a user message and return Sarla's response with animation metadata."""
     msg = req.message.strip()
     if not msg:
-        return JSONResponse({"response": "Kuch to boliye 😊"})
+        return JSONResponse({
+            "response": "Kuch to boliye 😊",
+            "emotion": "friendly",
+            "gesture": "greetingWave"
+        })
     
     logger.info(f"User Request: {msg[:50]}... (User: {req.user_name}, Theme Mode: {req.theme_mode})")
     try:
@@ -87,11 +120,18 @@ async def chat(req: ChatRequest):
             user_nickname=req.user_nickname
         )
         logger.info("Sarla responded successfully.")
-        return JSONResponse({"response": response})
+        emotion, gesture = classify_emotion(response)
+        return JSONResponse({
+            "response": response,
+            "emotion": emotion,
+            "gesture": gesture
+        })
     except Exception as e:
         logger.error(f"Chat Endpoint Error: {str(e)}")
         return JSONResponse({
-            "response": "Maaf kijiye, server busy hai ya kuch technical issue hai. Dobara try karein 😊"
+            "response": "Maaf kijiye, server busy hai ya kuch technical issue hai. Dobara try karein 😊",
+            "emotion": "concerned",
+            "gesture": "calmGesture"
         }, status_code=200)
 
 

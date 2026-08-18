@@ -135,13 +135,19 @@ class LLMEngine:
                 raise Exception("Gemini client not available")
 
             if USE_NEW_GENAI:
-                response = self.client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=prompt
-                )
-                duration = time.time() - start_time
-                logger.info(f"Gemini responded in {duration:.2f}s")
-                return response.text
+                for model_name in ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest"]:
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=prompt
+                        )
+                        duration = time.time() - start_time
+                        logger.info(f"Gemini ({model_name}) responded in {duration:.2f}s")
+                        return response.text
+                    except Exception as mod_err:
+                        logger.debug(f"Model {model_name} attempt: {mod_err}")
+                        continue
+                raise Exception("All Gemini models failed")
             elif USE_LEGACY_GENAI:
                 response = self.client.generate_content(prompt)
                 duration = time.time() - start_time
