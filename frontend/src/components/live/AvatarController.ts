@@ -1,7 +1,20 @@
+/**
+ * AvatarController.ts — Master 3D Character Controller & Real-Time Animation Coordinator
+ * Integrates Sarala's custom 3D character (modelToUsed) with real-time lip-sync,
+ * natural gestures, breathing idle, randomized blinking, and emotion states.
+ */
+
 import * as THREE from "three";
-import { EmotionController, EmotionType } from "./EmotionController";
-import { LipSyncController } from "./LipSyncController";
-import { GestureController } from "./GestureController";
+import { AudioAnalyzer, AudioAnalysisData } from "./avatar/AudioAnalyzer";
+import { LipSyncController, VisemeState } from "./avatar/LipSyncController";
+import { FacialController, FacialState } from "./avatar/FacialController";
+import { GestureController, ArmJointRotations, GestureType } from "./avatar/GestureController";
+import { IdleController, IdleMovementData } from "./avatar/IdleController";
+import { EmotionController, EmotionType, EmotionBlendState } from "./avatar/EmotionController";
+import { AnimationStateMachine, AvatarAnimationState } from "./avatar/AnimationStateMachine";
+import { ProceduralRig } from "./avatar/ProceduralRig";
+
+export type QualityLevel = "LOW" | "MEDIUM" | "HIGH" | "AUTO";
 
 export interface ModelValidationResult {
   isValid: boolean;
@@ -18,302 +31,170 @@ export class AvatarController {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
+  public controls: any = null;
 
-  public emotionCtrl: EmotionController;
+  // Sub-controllers
+  public audioAnalyzer: AudioAnalyzer;
   public lipSyncCtrl: LipSyncController;
+  public facialCtrl: FacialController;
   public gestureCtrl: GestureController;
+  public idleCtrl: IdleController;
+  public emotionCtrl: EmotionController;
+  public stateMachine: AnimationStateMachine;
+  public rig: ProceduralRig;
 
-  private avatarGroup: THREE.Group;
-  private bones: any = {};
-  private blinkTimer: number = 0;
-  private nextBlinkInterval: number = 3.5;
-  private isBlinking: boolean = false;
-  private blinkValue: number = 0;
-
-  private vrmModel: any = null;
-  private activeModelScene: THREE.Object3D | null = null;
   private clock: THREE.Clock;
   private containerElement: HTMLElement;
   private animFrameId: number | null = null;
+  private qualityLevel: QualityLevel = "AUTO";
 
-  constructor(container: HTMLElement) {
+  // Active models
+  private vrmModel: any = null;
+  private activeModelScene: THREE.Object3D | null = null;
+
+  // Lighting References for Dynamic Moods
+  private ambientLight!: THREE.AmbientLight;
+  private keyLight!: THREE.DirectionalLight;
+  private fillLight!: THREE.DirectionalLight;
+  private rimLight!: THREE.DirectionalLight;
+
+  constructor(container: HTMLElement, quality: QualityLevel = "AUTO") {
     this.containerElement = container;
+    this.qualityLevel = quality;
     this.clock = new THREE.Clock();
 
-    // Controllers
-    this.emotionCtrl = new EmotionController();
+    // 1. Initialize Sub-controllers
+    this.audioAnalyzer = new AudioAnalyzer();
     this.lipSyncCtrl = new LipSyncController();
+    this.facialCtrl = new FacialController();
     this.gestureCtrl = new GestureController();
+    this.idleCtrl = new IdleController();
+    this.emotionCtrl = new EmotionController();
+    this.stateMachine = new AnimationStateMachine("IDLE");
+    this.rig = new ProceduralRig();
 
-    // Scene setup
+    // 2. Scene Setup
     this.scene = new THREE.Scene();
 
-    // Camera setup
-    const aspect = container.clientWidth / container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(30, aspect, 0.1, 100);
-    this.camera.position.set(0, 1.25, 2.15);
+    // 3. Camera Setup
+    const width = container.clientWidth || 600;
+    const height = container.clientHeight || 400;
+    const aspect = width / height;
+    this.camera = new THREE.PerspectiveCamera(28, aspect, 0.1, 100);
+    this.camera.position.set(0, 1.35, 2.2);
     this.camera.lookAt(0, 1.15, 0);
 
-    // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 4. WebGL Renderer Setup
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance",
+    });
+    this.renderer.setSize(width, height);
+    this.applyQualitySettings(quality);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     container.appendChild(this.renderer.domElement);
 
-    // Lighting Setup
-    this.setupLighting();
+    // 5. Setup OrbitControls
+    this.setupOrbitControls();
 
-    // Avatar Root Group
-    this.avatarGroup = new THREE.Group();
-    this.scene.add(this.avatarGroup);
+    // 6. Studio Lighting Setup
+    this.setupStudioLighting();
 
-    // Build Fallback Realistic Female 3D Humanoid Engine
-    this.buildRealisticFemaleAvatar();
+    // 7. Add Rig Root to Scene
+    this.scene.add(this.rig.rootGroup);
 
-    // Load active avatar model (custom uploaded or default /avatar/sarala.vrm)
-    const savedModelUrl = typeof window !== "undefined" ? localStorage.getItem("sarla_active_avatar_model") : null;
-    this.loadModel(savedModelUrl || "/avatar/sarala.vrm");
+    // 8. Load Default Custom Sarala Character Model (modelToUsed_runtime.glb)
+    const savedModelUrl =
+      typeof window !== "undefined"
+        ? localStorage.getItem("sarla_active_avatar_model")
+        : null;
 
-    // Window resize handler
+    const defaultUrl = savedModelUrl || "/avatar/modelToUsed_runtime.glb";
+    this.loadModel(defaultUrl);
+
+    // 9. Event Listeners
     window.addEventListener("resize", this.onWindowResize);
 
-    // Initial greeting gesture
-    this.gestureCtrl.triggerGesture("greetingWave", 2.5);
+    // 10. Initial friendly greeting gesture
+    this.gestureCtrl.triggerGesture("greetingWave", 2.6);
   }
 
-  private setupLighting() {
-    const ambient = new THREE.AmbientLight(0xffffff, 1.6);
-    this.scene.add(ambient);
-
-    const keyLight = new THREE.DirectionalLight(0xffe8e0, 2.6);
-    keyLight.position.set(1.5, 2.5, 2.0);
-    keyLight.castShadow = true;
-    this.scene.add(keyLight);
-
-    const fillLight = new THREE.DirectionalLight(0x38bdf8, 1.4);
-    fillLight.position.set(-1.8, 1.8, 1.5);
-    this.scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0xec4899, 2.0);
-    rimLight.position.set(0, 2.0, -2.2);
-    this.scene.add(rimLight);
+  private async setupOrbitControls() {
+    try {
+      const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
+      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+      this.controls.enableDamping = true;
+      this.controls.dampingFactor = 0.05;
+      this.controls.enableZoom = true;
+      this.controls.minDistance = 1.0;
+      this.controls.maxDistance = 4.5;
+      this.controls.minPolarAngle = Math.PI * 0.2;
+      this.controls.maxPolarAngle = Math.PI * 0.65;
+      this.controls.target.set(0, 1.15, 0);
+      this.controls.update();
+    } catch (e) {
+      console.warn("OrbitControls notice:", e);
+    }
   }
 
-  private buildRealisticFemaleAvatar() {
-    const spine = new THREE.Bone();
-    spine.position.set(0, 0.65, 0);
+  private setupStudioLighting() {
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
+    this.scene.add(this.ambientLight);
 
-    const chest = new THREE.Bone();
-    chest.position.set(0, 0.35, 0);
-    spine.add(chest);
+    // Warm Soft Key Light
+    this.keyLight = new THREE.DirectionalLight(0xfff5ee, 3.0);
+    this.keyLight.position.set(1.5, 2.5, 2.0);
+    this.keyLight.castShadow = true;
+    this.keyLight.shadow.mapSize.width = 1024;
+    this.keyLight.shadow.mapSize.height = 1024;
+    this.keyLight.shadow.bias = -0.0005;
+    this.scene.add(this.keyLight);
 
-    const neck = new THREE.Bone();
-    neck.position.set(0, 0.26, 0);
-    chest.add(neck);
+    // Cool Cyan Fill Light
+    this.fillLight = new THREE.DirectionalLight(0x38bdf8, 1.8);
+    this.fillLight.position.set(-2.0, 1.8, 1.5);
+    this.scene.add(this.fillLight);
 
-    const head = new THREE.Bone();
-    head.position.set(0, 0.14, 0);
-    neck.add(head);
-
-    const leftUpperArm = new THREE.Bone();
-    leftUpperArm.position.set(0.2, 0.22, 0);
-    chest.add(leftUpperArm);
-
-    const leftLowerArm = new THREE.Bone();
-    leftLowerArm.position.set(0, -0.26, 0);
-    leftUpperArm.add(leftLowerArm);
-
-    const leftHand = new THREE.Bone();
-    leftHand.position.set(0, -0.24, 0);
-    leftLowerArm.add(leftHand);
-
-    const rightUpperArm = new THREE.Bone();
-    rightUpperArm.position.set(-0.2, 0.22, 0);
-    chest.add(rightUpperArm);
-
-    const rightLowerArm = new THREE.Bone();
-    rightLowerArm.position.set(0, -0.26, 0);
-    rightUpperArm.add(rightLowerArm);
-
-    const rightHand = new THREE.Bone();
-    rightHand.position.set(0, -0.24, 0);
-    rightLowerArm.add(rightHand);
-
-    this.bones = {
-      isVrm: false,
-      spine,
-      chest,
-      neck,
-      head,
-      leftUpperArm,
-      leftLowerArm,
-      leftHand,
-      rightUpperArm,
-      rightLowerArm,
-      rightHand,
-    };
-
-    const avatarRoot = new THREE.Group();
-    avatarRoot.add(spine);
-
-    // Texture Loader for Photo-Accurate Face Mesh
-    const textureLoader = new THREE.TextureLoader();
-    const faceTex = textureLoader.load("/avatar/sarala-digital-human-headshot.jpg");
-    faceTex.colorSpace = THREE.SRGBColorSpace;
-    faceTex.center.set(0.5, 0.5);
-
-    const skinMat = new THREE.MeshPhysicalMaterial({
-      map: faceTex,
-      color: 0xffffff,
-      roughness: 0.38,
-      metalness: 0.02,
-      clearcoat: 0.1,
-      clearcoatRoughness: 0.2,
-    });
-
-    // 3D Head Mesh
-    const headGeo = new THREE.SphereGeometry(0.155, 32, 32);
-    headGeo.scale(0.92, 1.14, 0.98);
-    const headMesh = new THREE.Mesh(headGeo, skinMat);
-    headMesh.position.set(0, 0.08, 0);
-    headMesh.castShadow = true;
-    head.add(headMesh);
-
-    // Neck
-    const neckMat = new THREE.MeshPhysicalMaterial({
-      color: 0xdfa594,
-      roughness: 0.4,
-      metalness: 0.02,
-    });
-    const neckGeo = new THREE.CylinderGeometry(0.065, 0.08, 0.15, 24);
-    const neckMesh = new THREE.Mesh(neckGeo, neckMat);
-    neckMesh.position.set(0, -0.06, 0);
-    neck.add(neckMesh);
-
-    // 3D Hair with Side Braid Styling
-    const hairMat = new THREE.MeshStandardMaterial({ color: 0x181124, roughness: 0.3, metalness: 0.15 });
-    const hairTopGeo = new THREE.SphereGeometry(0.168, 32, 32);
-    hairTopGeo.scale(0.98, 1.22, 1.08);
-    const hairTop = new THREE.Mesh(hairTopGeo, hairMat);
-    hairTop.position.set(0, 0.095, -0.012);
-    head.add(hairTop);
-
-    // Side Braid Strand
-    const braidGeo = new THREE.CylinderGeometry(0.02, 0.01, 0.28, 16);
-    const braidMesh = new THREE.Mesh(braidGeo, hairMat);
-    braidMesh.rotation.z = Math.PI * 0.15;
-    braidMesh.position.set(0.12, -0.02, 0.06);
-    head.add(braidMesh);
-
-    // 3D Traditional Silver Jhumka Earrings
-    const jhumkaMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.92, roughness: 0.2 });
-    const jhumkaTopGeo = new THREE.SphereGeometry(0.012, 16, 16);
-    const jhumkaBellGeo = new THREE.CylinderGeometry(0.006, 0.018, 0.022, 16);
-
-    // Left Jhumka
-    const leftJhumka = new THREE.Group();
-    leftJhumka.position.set(0.145, 0.04, 0.01);
-    leftJhumka.add(new THREE.Mesh(jhumkaTopGeo, jhumkaMat));
-    const lBell = new THREE.Mesh(jhumkaBellGeo, jhumkaMat);
-    lBell.position.set(0, -0.02, 0);
-    leftJhumka.add(lBell);
-    head.add(leftJhumka);
-
-    // Right Jhumka
-    const rightJhumka = new THREE.Group();
-    rightJhumka.position.set(-0.145, 0.04, 0.01);
-    rightJhumka.add(new THREE.Mesh(jhumkaTopGeo, jhumkaMat));
-    const rBell = new THREE.Mesh(jhumkaBellGeo, jhumkaMat);
-    rBell.position.set(0, -0.02, 0);
-    rightJhumka.add(rBell);
-    head.add(rightJhumka);
-
-    // 3D Eyes
-    const eyeWhiteGeo = new THREE.SphereGeometry(0.024, 16, 16);
-    const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1 });
-    const irisGeo = new THREE.SphereGeometry(0.014, 16, 16);
-    const irisMat = new THREE.MeshStandardMaterial({ color: 0x3b2314, roughness: 0.1 });
-
-    const leftEyeGroup = new THREE.Group();
-    leftEyeGroup.position.set(0.052, 0.07, 0.138);
-    leftEyeGroup.add(new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat));
-    const lIris = new THREE.Mesh(irisGeo, irisMat);
-    lIris.position.set(0, 0, 0.012);
-    leftEyeGroup.add(lIris);
-    head.add(leftEyeGroup);
-
-    const rightEyeGroup = new THREE.Group();
-    rightEyeGroup.position.set(-0.052, 0.07, 0.138);
-    rightEyeGroup.add(new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat));
-    const rIris = new THREE.Mesh(irisGeo, irisMat);
-    rIris.position.set(0, 0, 0.012);
-    rightEyeGroup.add(rIris);
-    head.add(rightEyeGroup);
-
-    // Eyelids (for live blinking)
-    const eyelidGeo = new THREE.BoxGeometry(0.042, 0.014, 0.02);
-    const eyelidMat = new THREE.MeshStandardMaterial({ color: 0xebbaaa });
-    const leftEyelid = new THREE.Mesh(eyelidGeo, eyelidMat);
-    leftEyelid.position.set(0.052, 0.082, 0.146);
-    head.add(leftEyelid);
-
-    const rightEyelid = new THREE.Mesh(eyelidGeo, eyelidMat);
-    rightEyelid.position.set(-0.052, 0.082, 0.146);
-    head.add(rightEyelid);
-
-    // Mouth Mesh (for live audio lip-sync)
-    const mouthGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.008, 24);
-    mouthGeo.scale(1.2, 0.6, 0.8);
-    const mouthMat = new THREE.MeshStandardMaterial({ color: 0xdb2777, roughness: 0.3 });
-    const mouthMesh = new THREE.Mesh(mouthGeo, mouthMat);
-    mouthMesh.rotation.x = Math.PI * 0.5;
-    mouthMesh.position.set(0, 0.014, 0.144);
-    head.add(mouthMesh);
-
-    // Torso / Outfit
-    const suitTex = textureLoader.load("/avatar/sarala-digital-human-front.jpg");
-    suitTex.colorSpace = THREE.SRGBColorSpace;
-    const torsoGeo = new THREE.CylinderGeometry(0.2, 0.17, 0.48, 32);
-    const suitMat = new THREE.MeshStandardMaterial({
-      map: suitTex,
-      color: 0xffffff,
-      roughness: 0.4,
-      metalness: 0.1,
-    });
-    const torsoMesh = new THREE.Mesh(torsoGeo, suitMat);
-    torsoMesh.position.set(0, 0.16, 0);
-    chest.add(torsoMesh);
-
-    // Arms
-    const armGeo = new THREE.CylinderGeometry(0.042, 0.036, 0.25, 20);
-    const leftUpperArmMesh = new THREE.Mesh(armGeo, suitMat);
-    leftUpperArmMesh.position.set(0, -0.125, 0);
-    leftUpperArm.add(leftUpperArmMesh);
-
-    const leftLowerArmMesh = new THREE.Mesh(armGeo, neckMat);
-    leftLowerArmMesh.position.set(0, -0.125, 0);
-    leftLowerArm.add(leftLowerArmMesh);
-
-    const rightUpperArmMesh = new THREE.Mesh(armGeo, suitMat);
-    rightUpperArmMesh.position.set(0, -0.125, 0);
-    rightUpperArm.add(rightUpperArmMesh);
-
-    const rightLowerArmMesh = new THREE.Mesh(armGeo, neckMat);
-    rightLowerArmMesh.position.set(0, -0.125, 0);
-    rightLowerArm.add(rightLowerArmMesh);
-
-    this.avatarGroup.add(avatarRoot);
-
-    (this as any).leftEyelid = leftEyelid;
-    (this as any).rightEyelid = rightEyelid;
-    (this as any).mouthMesh = mouthMesh;
+    // Vibrant Magenta/Pink Rim Light (Cyberpunk / Futuristic AI aesthetic)
+    this.rimLight = new THREE.DirectionalLight(0xec4899, 2.6);
+    this.rimLight.position.set(0, 2.2, -2.4);
+    this.scene.add(this.rimLight);
   }
 
-  // Automatic Bounding Box Calculation & Dynamic Camera Framing
+  public applyQualitySettings(quality: QualityLevel) {
+    this.qualityLevel = quality;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+
+    switch (quality) {
+      case "LOW":
+        this.renderer.setPixelRatio(1);
+        this.renderer.shadowMap.enabled = false;
+        break;
+      case "MEDIUM":
+        this.renderer.setPixelRatio(Math.min(dpr, 1.5));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.BasicShadowMap;
+        break;
+      case "HIGH":
+        this.renderer.setPixelRatio(Math.min(dpr, 2.0));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        break;
+      case "AUTO":
+      default:
+        const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+        this.renderer.setPixelRatio(Math.min(dpr, isMobile ? 1.25 : 2.0));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        break;
+    }
+  }
+
+  /**
+   * Automatic Bounding Box & Dynamic Camera Framing for Perfect Portrait View
+   */
   public autoFrameModel(targetObject: THREE.Object3D) {
     const box = new THREE.Box3().setFromObject(targetObject);
     if (box.isEmpty()) return;
@@ -323,25 +204,36 @@ export class AvatarController {
 
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = this.camera.fov * (Math.PI / 180);
-    let cameraDistance = Math.min(Math.abs(maxDim / (2 * Math.tan(fov / 2))) * 1.2, 2.0);
+    const cameraDistance = Math.min(
+      Math.abs(maxDim / (2 * Math.tan(fov / 2))) * 0.95,
+      2.5
+    );
 
-    // Frame upper body (head & chest)
-    const targetY = center.y + size.y * 0.22;
+    // Frame upper torso and head portrait
+    const targetY = center.y + size.y * 0.26;
     this.camera.position.set(center.x, targetY, center.z + cameraDistance);
     this.camera.lookAt(center.x, targetY, center.z);
+
+    if (this.controls) {
+      this.controls.target.set(center.x, targetY, center.z);
+      this.controls.update();
+    }
   }
 
-  // Load custom model (.vrm, .glb, .gltf)
+  /**
+   * Load 3D model asset (GLB, GLTF, VRM)
+   */
   public async loadModel(modelUrl: string): Promise<ModelValidationResult> {
-    const isVrm = modelUrl.toLowerCase().endsWith(".vrm") || modelUrl.includes(".vrm");
+    const isVrm =
+      modelUrl.toLowerCase().endsWith(".vrm") || modelUrl.includes(".vrm");
     const format = isVrm ? "VRM" : "GLB";
 
     try {
       const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-      const { VRMLoaderPlugin } = await import("@pixiv/three-vrm");
 
       const loader = new GLTFLoader();
       if (isVrm) {
+        const { VRMLoaderPlugin } = await import("@pixiv/three-vrm");
         loader.register((parser) => new VRMLoaderPlugin(parser));
       }
 
@@ -349,21 +241,20 @@ export class AvatarController {
         loader.load(
           modelUrl,
           (gltf) => {
-            let loadedScene: THREE.Object3D = gltf.scene;
-            let vrm = gltf.userData.vrm;
-
-            this.avatarGroup.clear();
+            const loadedScene: THREE.Object3D = gltf.scene;
+            const vrm = gltf.userData.vrm;
 
             if (vrm) {
               this.vrmModel = vrm;
               this.activeModelScene = vrm.scene;
-              this.avatarGroup.add(vrm.scene);
-              vrm.scene.rotation.y = 0; // Face front toward camera
+              vrm.scene.rotation.y = 0; // Front-facing
+              this.rig.bindModelScene(vrm.scene, true);
 
               if (vrm.humanoid) {
                 const h = vrm.humanoid;
-                this.bones = {
+                this.rig.bones = {
                   isVrm: true,
+                  root: this.rig.rootGroup,
                   spine: h.getNormalizedBoneNode("spine") || h.getRawBoneNode("spine"),
                   chest: h.getNormalizedBoneNode("chest") || h.getRawBoneNode("chest"),
                   neck: h.getNormalizedBoneNode("neck") || h.getRawBoneNode("neck"),
@@ -385,13 +276,15 @@ export class AvatarController {
                 hasFaceBones: true,
                 hasBlendshapes: true,
                 hasLipSync: true,
-                modelName: modelUrl.split("/").pop() || "3D VRM Model",
+                modelName: modelUrl.split("/").pop() || "Sarala Model",
                 format: "VRM",
-                message: "VRM model loaded & validated successfully!",
+                message: "VRM character loaded with full humanoid rig & expressions.",
               });
             } else {
+              // Custom Sarala GLB Model (modelToUsed.glb / modelToUsed_runtime.glb)
+              this.vrmModel = null;
               this.activeModelScene = loadedScene;
-              this.avatarGroup.add(loadedScene);
+              this.rig.bindModelScene(loadedScene, false);
               this.autoFrameModel(loadedScene);
 
               resolve({
@@ -400,15 +293,21 @@ export class AvatarController {
                 hasFaceBones: true,
                 hasBlendshapes: false,
                 hasLipSync: true,
-                modelName: modelUrl.split("/").pop() || "3D GLTF Model",
+                modelName: modelUrl.split("/").pop() || "Sarala 3D Character",
                 format: "GLB",
-                message: "GLTF/GLB model loaded successfully!",
+                message: "Custom Sarala 3D character loaded with procedural articulation engine.",
               });
             }
           },
           undefined,
           (err) => {
-            console.warn("3D Model load fallback:", err);
+            console.warn("Model load fallback check:", err);
+            // Fallback attempt: if runtime GLB failed, try loading raw modelToUsed.glb
+            if (modelUrl.includes("runtime.glb")) {
+              this.loadModel("/avatar/modelToUsed.glb").then(resolve);
+              return;
+            }
+
             resolve({
               isValid: false,
               hasSkeleton: false,
@@ -416,55 +315,30 @@ export class AvatarController {
               hasBlendshapes: false,
               hasLipSync: false,
               modelName: "Model Load Error",
-              format: "VRM",
-              message: "Failed to load model file. Using realistic procedural engine.",
+              format: "GLB",
+              message: "Failed to load model file. Using procedural fallback.",
             });
           }
         );
       });
     } catch (err) {
-      console.warn("Model Loader Error:", err);
+      console.warn("AvatarController load error:", err);
       return {
         isValid: false,
         hasSkeleton: false,
         hasFaceBones: false,
         hasBlendshapes: false,
         hasLipSync: false,
-        modelName: "Model Loader Error",
-        format: "VRM",
+        modelName: "Loader Error",
+        format: "GLB",
         message: "Failed to initialize 3D loader.",
       };
     }
   }
 
-  private updateBlinking(delta: number) {
-    this.blinkTimer += delta;
-    if (this.blinkTimer >= this.nextBlinkInterval) {
-      this.isBlinking = true;
-      this.blinkTimer = 0;
-      this.nextBlinkInterval = 2.2 + Math.random() * 3.5;
-    }
-
-    if (this.isBlinking) {
-      this.blinkValue += delta * 14.0;
-      if (this.blinkValue >= Math.PI) {
-        this.blinkValue = 0;
-        this.isBlinking = false;
-      }
-    }
-
-    const blinkAmount = this.isBlinking ? Math.sin(this.blinkValue) : 0;
-
-    if ((this as any).leftEyelid && (this as any).rightEyelid) {
-      (this as any).leftEyelid.scale.y = 1.0 + blinkAmount * 2.8;
-      (this as any).rightEyelid.scale.y = 1.0 + blinkAmount * 2.8;
-    }
-
-    if (this.vrmModel && this.vrmModel.expressionManager) {
-      this.vrmModel.expressionManager.setValue("blink", blinkAmount);
-    }
-  }
-
+  /**
+   * Main High-Performance 60 FPS Animation & Rendering Loop
+   */
   public startAnimationLoop(
     getAvatarState: () => string,
     getAudioAmplitude: () => number,
@@ -474,42 +348,76 @@ export class AvatarController {
       this.animFrameId = requestAnimationFrame(animate);
 
       const delta = this.clock.getDelta();
-      const state = getAvatarState();
-      const amplitude = getAudioAmplitude();
-      const emotion = getEmotion();
+      const stateStr = getAvatarState();
+      const simulatedAmp = getAudioAmplitude();
+      const emotionType = getEmotion();
 
-      const isSpeaking = state === "speaking";
-      const isListening = state === "listening";
-      const isThinking = state === "thinking";
-
-      this.emotionCtrl.setEmotion(emotion);
-      const emotionValues = this.emotionCtrl.update(delta);
-      const visemes = this.lipSyncCtrl.updateFromAmplitude(amplitude, isSpeaking, delta);
-      this.gestureCtrl.update(delta, isSpeaking, isListening, isThinking);
-      this.gestureCtrl.applyToBones(this.bones);
-
-      this.updateBlinking(delta);
-
-      if ((this as any).mouthMesh) {
-        const mouthScaleY = 1.0 + visemes.mouthOpen * 3.2;
-        const mouthScaleX = 1.0 + visemes.aa * 0.4 - visemes.ou * 0.3;
-        (this as any).mouthMesh.scale.set(mouthScaleX, mouthScaleY, 1.0);
+      // Update OrbitControls damping
+      if (this.controls) {
+        this.controls.update();
       }
 
+      // Update state machine
+      const stateUpper = (stateStr.toUpperCase() as AvatarAnimationState) || "IDLE";
+      this.stateMachine.setState(stateUpper);
+      const stateData = this.stateMachine.update(delta);
+
+      // 1. Analyze Audio in Real-Time
+      const audioData: AudioAnalysisData = this.audioAnalyzer.analyze(delta, simulatedAmp);
+
+      // 2. Update Emotion Blendshapes
+      this.emotionCtrl.setEmotion(emotionType);
+      const emotionBlends: EmotionBlendState = this.emotionCtrl.update(delta);
+
+      // 3. Compute Real-Time Lip-Sync & Visemes
+      const visemes: VisemeState = this.lipSyncCtrl.update(
+        audioData,
+        stateData.isSpeaking,
+        delta
+      );
+
+      // 4. Update Natural Blinking & Facial Micro-movements
+      const facial: FacialState = this.facialCtrl.update(
+        delta,
+        stateStr,
+        emotionType
+      );
+
+      // 5. Update Gestures
+      const armRotations: ArmJointRotations = this.gestureCtrl.update(
+        delta,
+        stateData.isSpeaking,
+        stateData.isListening,
+        stateData.isThinking
+      );
+
+      // 6. Update Idle Breathing & Natural Posture
+      const idleData: IdleMovementData = this.idleCtrl.update(
+        delta,
+        stateData.isListening
+      );
+
+      // 7. Apply All Combined Layer Transformations to the Skeleton
+      this.rig.applyPose(armRotations, idleData, facial, visemes);
+
+      // 8. If VRM model is active, pass standard expressions
       if (this.vrmModel) {
         this.vrmModel.update(delta);
         if (this.vrmModel.expressionManager) {
-          this.vrmModel.expressionManager.setValue("aa", visemes.aa);
-          this.vrmModel.expressionManager.setValue("ih", visemes.ih);
-          this.vrmModel.expressionManager.setValue("ou", visemes.ou);
-          this.vrmModel.expressionManager.setValue("ee", visemes.ee);
-          this.vrmModel.expressionManager.setValue("oh", visemes.oh);
-          this.vrmModel.expressionManager.setValue("joy", emotionValues.joy);
-          this.vrmModel.expressionManager.setValue("surprised", emotionValues.surprised);
-          this.vrmModel.expressionManager.setValue("sorrow", emotionValues.sorrow);
+          const em = this.vrmModel.expressionManager;
+          em.setValue("aa", visemes.A);
+          em.setValue("ih", visemes.I);
+          em.setValue("ou", visemes.U);
+          em.setValue("ee", visemes.E);
+          em.setValue("oh", visemes.O);
+          em.setValue("blink", facial.blinkAmount);
+          em.setValue("joy", emotionBlends.joy);
+          em.setValue("surprised", emotionBlends.surprised);
+          em.setValue("sorrow", emotionBlends.sorrow);
         }
       }
 
+      // 9. Render Frame
       this.renderer.render(this.scene, this.camera);
     };
 
@@ -519,18 +427,28 @@ export class AvatarController {
 
   private onWindowResize = () => {
     if (!this.containerElement) return;
-    const width = this.containerElement.clientWidth;
-    const height = this.containerElement.clientHeight;
+    const width = this.containerElement.clientWidth || 600;
+    const height = this.containerElement.clientHeight || 400;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
   };
 
+  public triggerGesture(gesture: GestureType, durationSeconds?: number) {
+    this.gestureCtrl.triggerGesture(gesture, durationSeconds);
+  }
+
   public dispose() {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
     }
     window.removeEventListener("resize", this.onWindowResize);
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+    this.audioAnalyzer.dispose();
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
     }

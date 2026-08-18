@@ -107,7 +107,7 @@ export default function RootLayout({
     const targetPassword = customPassword !== undefined ? customPassword : loginPassword;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
       const res = await fetch(`${apiUrl}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,7 +143,7 @@ export default function RootLayout({
     setAuthLoading(true);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
       const res = await fetch(`${apiUrl}/api/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

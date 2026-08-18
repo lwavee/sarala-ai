@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { AvatarState } from "./useLiveSession";
 import SaralaAvatar3D from "./SaralaAvatar3D";
-import { EmotionType } from "./EmotionController";
+import { EmotionType } from "./avatar/EmotionController";
 
 interface LiveAvatarProps {
   avatarState: AvatarState;

@@ -50,8 +50,8 @@ export default function LiveTranscript({
   const hasContent = Boolean(cleanUser || cleanSarala);
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 mb-3 z-20">
-      <div className="glass rounded-2xl p-3 md:p-4 border border-white/15 bg-black/60 backdrop-blur-xl shadow-2xl relative transition-all animate-fade-in">
+    <div className="w-full max-w-2xl mx-auto px-4 mb-2 z-20">
+      <div className="glass rounded-2xl p-3 md:p-4 border border-white/15 bg-black/60 backdrop-blur-xl shadow-2xl relative transition-all animate-fade-in max-h-24 md:max-h-32 overflow-y-auto custom-scrollbar">
         <button
           onClick={() => setShowSubtitles(false)}
           className="absolute top-2 right-2 p-1 text-slate-500 hover:text-slate-300 rounded-full cursor-pointer"

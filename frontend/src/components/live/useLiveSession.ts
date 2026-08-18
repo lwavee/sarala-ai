@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { EmotionController, EmotionType } from "./avatar/EmotionController";
 
 export type AvatarState = "idle" | "listening" | "thinking" | "speaking" | "error";
 export type ConnectionStatus = "connected" | "connecting" | "offline";
@@ -18,10 +19,11 @@ export function useLiveSession({
   userNickname = "",
 }: UseLiveSessionOptions = {}) {
   const [avatarState, setAvatarState] = useState<AvatarState>("idle");
+  const [emotion, setEmotion] = useState<EmotionType>("neutral");
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connected");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
+
   // Transcripts & captions
   const [userTranscript, setUserTranscript] = useState<string>("");
   const [saralaResponse, setSaralaResponse] = useState<string>("");
@@ -42,7 +44,7 @@ export function useLiveSession({
     isComponentMounted.current = true;
     const checkBackend = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
         const res = await fetch(`${apiUrl}/health`, { method: "GET" });
         if (res.ok) {
           setConnectionStatus("connected");
@@ -66,8 +68,6 @@ export function useLiveSession({
     };
   }, []);
 
-  const [emotion, setEmotion] = useState<any>("neutral");
-
   // Clean text for TTS (strips all markdown symbols, emojis, and hashtags)
   const cleanTextForSpeech = (rawText: string) => {
     return rawText
@@ -82,20 +82,6 @@ export function useLiveSession({
       .replace(/`(.*?)`/g, "$1")
       .replace(/```[\s\S]*?```/g, "")
       .trim();
-  };
-
-  const detectEmotion = (text: string) => {
-    const lower = text.toLowerCase();
-    if (lower.includes("sad") || lower.includes("dukhi") || lower.includes("sorry") || lower.includes("kharab")) {
-      return "sad";
-    }
-    if (lower.includes("congrat") || lower.includes("great") || lower.includes("badhiya") || lower.includes("happy") || lower.includes("client") || lower.includes("khush") || lower.includes("wah")) {
-      return "happy";
-    }
-    if (lower.includes("wow") || lower.includes("amazing") || lower.includes("surpris")) {
-      return "surprised";
-    }
-    return "neutral";
   };
 
   // Full session cleanup
@@ -148,10 +134,10 @@ export function useLiveSession({
     let phase = 0;
     const animate = () => {
       if (!isComponentMounted.current) return;
-      phase += 0.15;
+      phase += 0.16;
       const baseWave = Math.sin(phase) * 0.4 + 0.5;
       const randomJitter = (Math.random() - 0.5) * 0.3;
-      const val = Math.max(0.1, Math.min(1.0, baseWave + randomJitter));
+      const val = Math.max(0.12, Math.min(1.0, baseWave + randomJitter));
       setAudioAmplitude(val);
       animFrameRef.current = requestAnimationFrame(animate);
     };
@@ -217,7 +203,6 @@ export function useLiveSession({
       };
 
       utterance.onerror = (e: any) => {
-        // Ignore expected cancellation/interruption events gracefully
         if (e?.error !== "canceled" && e?.error !== "interrupted") {
           console.warn("Speech Synthesis notice:", e?.error || e);
         }
@@ -243,7 +228,7 @@ export function useLiveSession({
       setErrorMessage(null);
 
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
         const res = await fetch(`${apiUrl}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -261,8 +246,12 @@ export function useLiveSession({
         if (!isComponentMounted.current) return;
 
         setSaralaResponse(responseText);
-        const emo = detectEmotion(responseText);
-        setEmotion(emo);
+
+        // Read emotion from backend payload if available, or classify client-side
+        const detectedEmotion: EmotionType =
+          data.emotion || EmotionController.detectEmotionFromText(responseText);
+        setEmotion(detectedEmotion);
+
         setTranscriptHistory((prev) => [...prev, { sender: "sarala", text: responseText }]);
         setConnectionStatus("connected");
 
@@ -294,7 +283,7 @@ export function useLiveSession({
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setErrorMessage("Speech recognition is not supported in this browser.");
+      setErrorMessage("Speech recognition is supported in Chrome, Edge, and modern browsers.");
       setAvatarState("error");
       return;
     }
@@ -328,10 +317,10 @@ export function useLiveSession({
       };
 
       recognition.onerror = (event: any) => {
-        console.error("Speech recognition error:", event.error);
+        console.error("Speech recognition notice:", event.error);
         if (!isComponentMounted.current) return;
         if (event.error === "not-allowed") {
-          setErrorMessage("Microphone access denied. Please grant permission in browser settings.");
+          setErrorMessage("Microphone access denied. Please grant mic permission in browser settings.");
           setAvatarState("error");
         } else {
           setAvatarState("idle");

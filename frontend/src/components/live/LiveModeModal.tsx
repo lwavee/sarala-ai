@@ -65,7 +65,7 @@ export default function LiveModeModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-between p-4 md:p-8 live-modal-bg backdrop-blur-2xl animate-fade-in overflow-hidden select-none">
+    <div className="fixed inset-0 z-50 flex flex-col justify-between p-3 md:p-6 live-modal-bg backdrop-blur-2xl animate-fade-in overflow-hidden select-none max-h-screen">
       {/* Background Soft Lighting & Visual Gradients */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-gradient-to-tr from-pink-600/20 via-indigo-600/20 to-cyan-500/20 rounded-full blur-[100px] pointer-events-none" />
 
@@ -84,7 +84,7 @@ export default function LiveModeModal({
       )}
 
       {/* Center AI Girl Avatar Area */}
-      <div className="flex-1 flex items-center justify-center z-20 my-auto">
+      <div className="flex-1 w-full min-h-0 flex items-center justify-center z-20 overflow-hidden relative my-1">
         <LiveAvatar
           key={reloadKey}
           avatarState={avatarState}
