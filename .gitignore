@@ -62,6 +62,7 @@ frontend/public/avatar/modelToUsed.glb
 backend/voice/cache/
 backend/voice/models/
 backend/voice/output/*.wav
+backend/voice/output/*.mp3
 backend/voice/benchmark/*.wav
 !backend/voice/benchmark/reference_clean.wav
 

@@ -14,3 +14,4 @@ numpy
 soundfile
 scipy
 imageio-ffmpeg
+edge-tts

@@ -84,8 +84,15 @@ export function useLiveSession({
       .trim();
   };
 
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
   // Full session cleanup
   const cleanupLiveSession = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -118,6 +125,10 @@ export function useLiveSession({
 
   // Stop active speaking (for user interruption)
   const stopSpeaking = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -145,7 +156,7 @@ export function useLiveSession({
     animFrameRef.current = requestAnimationFrame(animate);
   }, []);
 
-  // Speak text with synchronized avatar state
+  // Browser speech synthesis fallback
   const speakText = useCallback(
     (text: string) => {
       if (isMuted) {
@@ -217,6 +228,51 @@ export function useLiveSession({
     [isMuted, stopSpeaking, startAudioAmplitudeSimulation]
   );
 
+  // Play Natural Neural / Cloned Audio Stream
+  const playNaturalAudio = useCallback(
+    async (audioUrl: string, fallbackText: string) => {
+      if (isMuted) {
+        setAvatarState("idle");
+        return;
+      }
+
+      stopSpeaking();
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        const fullUrl = audioUrl.startsWith("http") ? audioUrl : `${apiUrl}${audioUrl}`;
+        const audio = new Audio(fullUrl);
+        audioPlayerRef.current = audio;
+
+        audio.onplay = () => {
+          if (!isComponentMounted.current) return;
+          setAvatarState("speaking");
+          startAudioAmplitudeSimulation();
+        };
+
+        audio.onended = () => {
+          if (!isComponentMounted.current) return;
+          if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+          setAudioAmplitude(0);
+          setAvatarState("idle");
+        };
+
+        audio.onerror = () => {
+          console.warn("Natural audio stream playback error, falling back to browser TTS.");
+          if (isComponentMounted.current) {
+            speakText(fallbackText);
+          }
+        };
+
+        await audio.play();
+      } catch (playErr) {
+        console.warn("Audio autoplay blocked or failed, using fallback:", playErr);
+        speakText(fallbackText);
+      }
+    },
+    [isMuted, stopSpeaking, startAudioAmplitudeSimulation, speakText]
+  );
+
   // Send message to Sarala AI API
   const sendToSarala = useCallback(
     async (text: string) => {
@@ -255,8 +311,12 @@ export function useLiveSession({
         setTranscriptHistory((prev) => [...prev, { sender: "sarala", text: responseText }]);
         setConnectionStatus("connected");
 
-        // Start speaking AI response
-        speakText(responseText);
+        // Play authentic natural cloned / neural voice audio
+        if (data.audio_url) {
+          playNaturalAudio(data.audio_url, responseText);
+        } else {
+          speakText(responseText);
+        }
       } catch (err) {
         console.error("Live Mode API error:", err);
         if (!isComponentMounted.current) return;
@@ -267,8 +327,9 @@ export function useLiveSession({
         setErrorMessage(errMsg);
       }
     },
-    [themeMode, userName, userNickname, speakText]
+    [themeMode, userName, userNickname, playNaturalAudio, speakText]
   );
+
 
   // Start microphone speech recognition
   const startListening = useCallback(() => {

@@ -102,15 +102,21 @@ def classify_emotion(text: str) -> tuple:
         return "friendly", "explainOneHand"
     return "neutral", "explainOneHand"
 
+# ── Voice Cloning & Natural Voice Integration ────────────────────────────────
+import re
+from voice.natural_voice import natural_voice_manager
+from voice.xtts_engine import voice_engine
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    """Process a user message and return Sarla's response with animation metadata."""
+    """Process a user message and return Sarla's response with natural voice audio & animation metadata."""
     msg = req.message.strip()
     if not msg:
         return JSONResponse({
             "response": "Kuch to boliye 😊",
             "emotion": "friendly",
-            "gesture": "greetingWave"
+            "gesture": "greetingWave",
+            "audio_url": None
         })
     
     logger.info(f"User Request: {msg[:50]}... (User: {req.user_name}, Theme Mode: {req.theme_mode})")
@@ -123,17 +129,32 @@ async def chat(req: ChatRequest):
         )
         logger.info("Sarla responded successfully.")
         emotion, gesture = classify_emotion(response)
+
+        # Generate natural cloned/neural speech
+        audio_url = None
+        voice_engine_used = None
+        try:
+            voice_res = natural_voice_manager.synthesize(response, engine="auto")
+            if voice_res.get("success"):
+                audio_url = voice_res.get("audio_url")
+                voice_engine_used = voice_res.get("engine")
+        except Exception as v_err:
+            logger.warning(f"Audio synthesis error in chat endpoint: {v_err}")
+
         return JSONResponse({
             "response": response,
             "emotion": emotion,
-            "gesture": gesture
+            "gesture": gesture,
+            "audio_url": audio_url,
+            "voice_engine": voice_engine_used
         })
     except Exception as e:
         logger.error(f"Chat Endpoint Error: {str(e)}")
         return JSONResponse({
             "response": "Maaf kijiye, server busy hai ya kuch technical issue hai. Dobara try karein 😊",
             "emotion": "concerned",
-            "gesture": "calmGesture"
+            "gesture": "calmGesture",
+            "audio_url": None
         }, status_code=200)
 
 
@@ -142,39 +163,36 @@ async def health():
     return {"status": "ok", "agent": "Sarla AI"}
 
 
-# ── Voice Cloning Endpoints (Isolated Module) ────────────────────────────────
-import re
-from voice.xtts_engine import voice_engine
-
+# ── Voice Cloning Endpoints ──────────────────────────────────────────────────
 class VoiceSynthesizeRequest(BaseModel):
     text: str
     language: str = "hi"
+    engine: str = "auto"
 
 @app.get("/voice/health")
 async def voice_health():
-    """Health check for Sarala local voice cloning engine."""
+    """Health check for Sarala voice cloning & natural voice engine."""
     status = voice_engine.get_status()
+    status["natural_voice_ready"] = True
     return JSONResponse(status)
 
 @app.post("/voice/synthesize")
 async def voice_synthesize(req: VoiceSynthesizeRequest):
-    """Synthesize speech using cloned Sarala voice on CPU."""
+    """Synthesize speech using natural cloned or neural Sarala voice."""
     txt = req.text.strip()
     if not txt:
         return JSONResponse({"success": False, "error": "Text cannot be empty"}, status_code=400)
     
-    res = voice_engine.synthesize(txt, language=req.language)
+    res = natural_voice_manager.synthesize(txt, language=req.language, engine=req.engine)
     if res.get("success"):
-        filename = res.get("filename")
         return JSONResponse({
             "success": True,
-            "filename": filename,
-            "audio_url": f"/voice/audio/{filename}",
+            "filename": res.get("filename"),
+            "audio_url": res.get("audio_url"),
             "duration_sec": res.get("duration_sec"),
             "latency_sec": res.get("latency_sec"),
-            "rtf": res.get("rtf"),
-            "language": req.language,
-            "device": res.get("device")
+            "engine": res.get("engine"),
+            "language": res.get("language")
         })
     else:
         return JSONResponse({
@@ -184,15 +202,17 @@ async def voice_synthesize(req: VoiceSynthesizeRequest):
 
 @app.get("/voice/audio/{filename}")
 async def get_voice_audio(filename: str):
-    """Serve synthesized audio WAV file safely."""
-    if not re.match(r"^[a-zA-Z0-9_\-]+\.wav$", filename):
+    """Serve synthesized audio WAV or MP3 file safely."""
+    if not re.match(r"^[a-zA-Z0-9_\-]+\.(wav|mp3)$", filename):
         return JSONResponse({"error": "Invalid filename format"}, status_code=400)
     
-    file_path = os.path.join(voice_engine.output_dir, filename)
+    file_path = os.path.join(natural_voice_manager.output_dir, filename)
     if not os.path.exists(file_path):
         return JSONResponse({"error": "Audio file not found"}, status_code=404)
     
-    return FileResponse(file_path, media_type="audio/wav")
+    media_type = "audio/mpeg" if filename.endswith(".mp3") else "audio/wav"
+    return FileResponse(file_path, media_type=media_type)
+
 
 
 # ── Isolated Voice Benchmark Endpoints ──────────────────────────────────────
