@@ -134,7 +134,7 @@ async def chat(req: ChatRequest):
         audio_url = None
         voice_engine_used = None
         try:
-            voice_res = natural_voice_manager.synthesize(response, engine="auto")
+            voice_res = await natural_voice_manager.synthesize_async(response, engine="auto")
             if voice_res.get("success"):
                 audio_url = voice_res.get("audio_url")
                 voice_engine_used = voice_res.get("engine")
@@ -183,7 +183,7 @@ async def voice_synthesize(req: VoiceSynthesizeRequest):
     if not txt:
         return JSONResponse({"success": False, "error": "Text cannot be empty"}, status_code=400)
     
-    res = natural_voice_manager.synthesize(txt, language=req.language, engine=req.engine)
+    res = await natural_voice_manager.synthesize_async(txt, language=req.language, engine=req.engine)
     if res.get("success"):
         return JSONResponse({
             "success": True,
@@ -199,6 +199,7 @@ async def voice_synthesize(req: VoiceSynthesizeRequest):
             "success": False,
             "error": res.get("error")
         }, status_code=500)
+
 
 @app.get("/voice/audio/{filename}")
 async def get_voice_audio(filename: str):

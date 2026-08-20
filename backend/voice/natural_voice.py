@@ -156,7 +156,6 @@ class NaturalVoiceManager:
         if engine in ("auto", "neural"):
             voice_name = NEURAL_VOICES.get(target_lang, NEURAL_VOICES["hi"])
             try:
-                # Run async synthesis in synchronous loop
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
@@ -207,6 +206,67 @@ class NaturalVoiceManager:
             "error": "All voice synthesis engines failed to generate audio."
         }
 
+    async def synthesize_async(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        engine: str = "auto",
+        reference_wav: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Async version of synthesize for FastAPI async endpoints."""
+        raw_text = text.strip() if text else ""
+        if not raw_text:
+            return {"success": False, "error": "Text cannot be empty."}
+
+        cleaned = clean_text_for_synthesis(raw_text)
+        if not cleaned:
+            cleaned = "जी, मैं आपकी क्या मदद कर सकती हूँ?"
+
+        target_lang = language or detect_language(cleaned)
+        
+        text_hash = hashlib.md5(f"{cleaned}_{target_lang}_{engine}".encode("utf-8")).hexdigest()[:12]
+        cached_filename = f"sarala_{target_lang}_{text_hash}.mp3"
+        cached_path = self.output_dir / cached_filename
+
+        if cached_path.exists() and cached_path.stat().st_size > 100:
+            return {
+                "success": True,
+                "filename": cached_filename,
+                "file_path": str(cached_path),
+                "audio_url": f"/voice/audio/{cached_filename}",
+                "engine": "cache",
+                "cached": True,
+                "latency_sec": 0.01,
+                "language": target_lang
+            }
+
+        t0 = time.time()
+
+        if engine in ("auto", "neural"):
+            voice_name = NEURAL_VOICES.get(target_lang, NEURAL_VOICES["hi"])
+            try:
+                success = await synthesize_neural_async(cleaned, voice_name, str(cached_path))
+                if success:
+                    latency = round(time.time() - t0, 3)
+                    logger.info(f"Generated natural voice async [{voice_name}] in {latency}s: '{cleaned[:40]}...'")
+                    return {
+                        "success": True,
+                        "filename": cached_filename,
+                        "file_path": str(cached_path),
+                        "audio_url": f"/voice/audio/{cached_filename}",
+                        "engine": "neural",
+                        "voice_name": voice_name,
+                        "cached": False,
+                        "latency_sec": latency,
+                        "language": target_lang
+                    }
+            except Exception as neural_err:
+                logger.warning(f"Async neural engine failed, attempting XTTS: {neural_err}")
+
+        # Fallback to sync XTTS
+        return self.synthesize(text=text, language=language, engine="xtts", reference_wav=reference_wav)
+
 
 # Global singleton
 natural_voice_manager = NaturalVoiceManager()
+
