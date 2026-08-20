@@ -1,0 +1,107 @@
+{
+  "master_reference": {
+    "source_file": "radhey_radhey_2026_02_06_17_09_58_TK2dTgoC_clean.mp3",
+    "output_path": "backend/voice/samples/sarala_reference.wav",
+    "sample_rate": 22050,
+    "channels": 1,
+    "duration_sec": 24.0,
+    "file_size_bytes": 1058444,
+    "rms_energy": 0.1113,
+    "peak_amplitude": 0.8105,
+    "format": "WAV (16-bit PCM Mono)"
+  },
+  "all_source_files": [
+    {
+      "filename": "Radhey Radhey 🥰 2025-11-06 17-25-33.m4a",
+      "raw_duration_sec": 44.71,
+      "clean_duration_sec": 44.08,
+      "rms_energy": 0.0887,
+      "quality_score": 83.92,
+      "status": "clean"
+    },
+    {
+      "filename": "Radhey Radhey 🥰 2025-11-17 17-37-28.m4a",
+      "raw_duration_sec": 347.61,
+      "clean_duration_sec": 346.34,
+      "rms_energy": 0.0871,
+      "quality_score": 82.69,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2025-11-06-17-25-33_kfoNrYFE.mp3",
+      "raw_duration_sec": 3.91,
+      "clean_duration_sec": 3.9,
+      "rms_energy": 0.0906,
+      "quality_score": 55.83,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2025-11-17-17-37-28_J528m3Dh.mp3",
+      "raw_duration_sec": 14.77,
+      "clean_duration_sec": 14.74,
+      "rms_energy": 0.1059,
+      "quality_score": 71.12,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2025-11-17-17-37-28_tlUrD0AU.mp3",
+      "raw_duration_sec": 5.21,
+      "clean_duration_sec": 5.2,
+      "rms_energy": 0.1163,
+      "quality_score": 58.85,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2026-02-06-17-09-58_5QIaJxpO.mp3",
+      "raw_duration_sec": 45.25,
+      "clean_duration_sec": 40.63,
+      "rms_energy": 0.0991,
+      "quality_score": 83.97,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2026-02-06-17-09-58_TK2dTgoC.mp3",
+      "raw_duration_sec": 175.16,
+      "clean_duration_sec": 175.12,
+      "rms_energy": 0.1036,
+      "quality_score": 87.75,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2026-02-07-10-10-43_HUazSd2F.mp3",
+      "raw_duration_sec": 4.24,
+      "clean_duration_sec": 4.2,
+      "rms_energy": 0.1886,
+      "quality_score": 63.1,
+      "status": "clean"
+    },
+    {
+      "filename": "radhey-radhey-2026-02-09-19-19-20_B5xhujsL.mp3",
+      "raw_duration_sec": 4.02,
+      "clean_duration_sec": 3.0,
+      "rms_energy": 0.1279,
+      "quality_score": 29.0,
+      "status": "too_short"
+    },
+    {
+      "filename": "radhey-radhey-2026-02-09-19-19-20_V4fC3NRy.mp3",
+      "raw_duration_sec": 2.49,
+      "clean_duration_sec": 2.45,
+      "rms_energy": 0.1826,
+      "quality_score": 30.41,
+      "status": "too_short"
+    },
+    {
+      "filename": "radhey_radhey_2026_02_06_17_09_58_TK2dTgoC_clean.mp3",
+      "raw_duration_sec": 175.16,
+      "clean_duration_sec": 175.12,
+      "rms_energy": 0.104,
+      "quality_score": 89.38,
+      "status": "clean"
+    }
+  ],
+  "total_files_scanned": 11,
+  "successful_conversions": 11,
+  "ffmpeg_used": "C:\\Users\\lohar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe",
+  "status": "ready"
+}

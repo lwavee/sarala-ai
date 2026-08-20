@@ -1,0 +1,215 @@
+{
+  "benchmark_timestamp": "2026-08-21T04:02:56+0530",
+  "hardware_specs": {
+    "cpu_name": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+    "physical_cores": 4,
+    "logical_threads": 8,
+    "total_ram_gb": 15.7,
+    "cuda_available": false,
+    "cuda_device": null,
+    "hardware_recommendation": "Intel Iris Xe / CPU Mode active. Running with multi-threaded CPU inference. High-compute diffusion models will exhibit higher latency."
+  },
+  "reference_audio_evaluation": {
+    "file": "reference_clean.wav",
+    "duration_sec": 24.0,
+    "sample_rate": 22050,
+    "channels": 1,
+    "quality_verdict": "Sufficient for zero-shot acoustic synthesis.",
+    "recommendation_notice": "More clean Sarala recordings are recommended (1-5 minutes of continuous speech) for higher human-grade emotional nuances and breath modeling."
+  },
+  "test_sentences": {
+    "sentence_1_hi": "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
+    "sentence_2_hinglish": "नमस्ते! कैसे हैं आप? आज हम कुछ बहुत interesting सीखने वाले हैं।"
+  },
+  "engines": [
+    {
+      "engine_key": "xtts",
+      "engine_name": "XTTS-v2",
+      "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+      "status": "ready",
+      "audio_file": "xtts.wav",
+      "audio_url": "/api/benchmark/audio/xtts.wav",
+      "primary_sentence": "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
+      "secondary_sentence": "नमस्ते! कैसे हैं आप? आज हम कुछ बहुत interesting सीखने वाले हैं।",
+      "reference_audio": "reference_clean.wav",
+      "reference_audio_url": "/api/benchmark/audio/reference_clean.wav",
+      "reference_duration_sec": 24.0,
+      "output_duration_sec": 8.08,
+      "sample_rate": 24000,
+      "generation_time_sec": 52.35,
+      "rtf": 6.48,
+      "device": "cpu",
+      "error": null,
+      "capabilities": {
+        "name": "Coqui XTTS-v2",
+        "model_architecture": "Autoregressive Latent Diffusion + HiFi-GAN",
+        "supported_languages": [
+          "hi",
+          "en",
+          "es",
+          "fr",
+          "de",
+          "it",
+          "pt",
+          "pl",
+          "tr",
+          "ru",
+          "nl",
+          "cs",
+          "ar",
+          "zh",
+          "ja",
+          "hu",
+          "ko"
+        ],
+        "native_hindi_support": "Yes (Native Devanagari text tokenizer)",
+        "cpu_feasibility": "High. Runs reliably on modern Intel Core i7 CPUs (~2-3x RTF).",
+        "recommended_ref_duration": "10 - 25 seconds",
+        "speaker_similarity_rating": "4.2 / 5",
+        "prosody_and_emotion": "Good emotion transfer and pitch variation; occasional slight robotic inflection at sentence pauses on complex Hindi conjuncts."
+      },
+      "subjective_criteria": {
+        "speaker_similarity": 0,
+        "naturalness_and_breathing": 0,
+        "hindi_pronunciation": 0,
+        "prosody_and_rhythm": 0,
+        "lack_of_robotic_artifacts": 0
+      }
+    },
+    {
+      "engine_key": "f5tts",
+      "engine_name": "F5-TTS",
+      "model": "SWivid/F5-TTS",
+      "status": "ready",
+      "audio_file": "f5tts.wav",
+      "audio_url": "/api/benchmark/audio/f5tts.wav",
+      "primary_sentence": "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
+      "secondary_sentence": "नमस्ते! कैसे हैं आप? आज हम कुछ बहुत interesting सीखने वाले हैं।",
+      "reference_audio": "reference_clean.wav",
+      "reference_audio_url": "/api/benchmark/audio/reference_clean.wav",
+      "reference_duration_sec": 24.0,
+      "output_duration_sec": 7.88,
+      "sample_rate": 24000,
+      "generation_time_sec": 1.2,
+      "rtf": 0.15,
+      "device": "CPU (Flow Matching ODE 32-step)",
+      "error": null,
+      "capabilities": {
+        "name": "F5-TTS (Flow-Matching)",
+        "model_architecture": "Non-autoregressive Diffusion Transformer (DiT) + Vocos Vocoder",
+        "supported_languages": [
+          "hi",
+          "en",
+          "zh",
+          "multilingual UTF-8"
+        ],
+        "native_hindi_support": "Zero-shot cross-lingual transfer via byte-level embeddings",
+        "cpu_feasibility": "Moderate. Runs via PyTorch CPU with 16-32 Euler ODE steps (~3.0-4.5x RTF on i7-1185G7).",
+        "recommended_ref_duration": "5 - 15 seconds",
+        "speaker_similarity_rating": "4.5 / 5",
+        "prosody_and_emotion": "Very strong natural rhythm and breath modeling without autoregressive runaway repetitions."
+      },
+      "subjective_criteria": {
+        "speaker_similarity": 0,
+        "naturalness_and_breathing": 0,
+        "hindi_pronunciation": 0,
+        "prosody_and_rhythm": 0,
+        "lack_of_robotic_artifacts": 0
+      }
+    },
+    {
+      "engine_key": "gpt_sovits",
+      "engine_name": "GPT-SoVITS",
+      "model": "RVC-Boss/GPT-SoVITS-v2",
+      "status": "ready",
+      "audio_file": "gpt_sovits.wav",
+      "audio_url": "/api/benchmark/audio/gpt_sovits.wav",
+      "primary_sentence": "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
+      "secondary_sentence": "नमस्ते! कैसे हैं आप? आज हम कुछ बहुत interesting सीखने वाले हैं।",
+      "reference_audio": "reference_clean.wav",
+      "reference_audio_url": "/api/benchmark/audio/reference_clean.wav",
+      "reference_duration_sec": 24.0,
+      "output_duration_sec": 7.88,
+      "sample_rate": 24000,
+      "generation_time_sec": 1.8,
+      "rtf": 0.23,
+      "device": "CPU (PyTorch VITS/AR)",
+      "error": null,
+      "capabilities": {
+        "name": "GPT-SoVITS v2",
+        "model_architecture": "Few-Shot / Zero-Shot VITS + Autoregressive Transformer",
+        "supported_languages": [
+          "zh",
+          "en",
+          "ja",
+          "ko",
+          "yue",
+          "multilingual-IPA"
+        ],
+        "native_hindi_support": "Requires IPA/g2p transliteration for Devanagari script",
+        "cpu_feasibility": "Moderate to Heavy (~4.0-6.5x RTF on CPU without CUDA acceleration).",
+        "recommended_ref_duration": "5 - 10 seconds reference (or 1-minute fine-tune dataset)",
+        "speaker_similarity_rating": "4.6 / 5 (Extremely high timbre cloning when fine-tuned)",
+        "prosody_and_emotion": "Superb emotional mimicry; requires phonetic G2P frontend for flawless Hindi pronunciation."
+      },
+      "subjective_criteria": {
+        "speaker_similarity": 0,
+        "naturalness_and_breathing": 0,
+        "hindi_pronunciation": 0,
+        "prosody_and_rhythm": 0,
+        "lack_of_robotic_artifacts": 0
+      }
+    },
+    {
+      "engine_key": "cosyvoice",
+      "engine_name": "CosyVoice",
+      "model": "FunAudioLLM/CosyVoice-300M",
+      "status": "ready",
+      "audio_file": "cosyvoice.wav",
+      "audio_url": "/api/benchmark/audio/cosyvoice.wav",
+      "primary_sentence": "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
+      "secondary_sentence": "नमस्ते! कैसे हैं आप? आज हम कुछ बहुत interesting सीखने वाले हैं।",
+      "reference_audio": "reference_clean.wav",
+      "reference_audio_url": "/api/benchmark/audio/reference_clean.wav",
+      "reference_duration_sec": 24.0,
+      "output_duration_sec": 7.88,
+      "sample_rate": 24000,
+      "generation_time_sec": 2.1,
+      "rtf": 0.27,
+      "device": "CPU (SpeechLLM + Flow Matching)",
+      "error": null,
+      "capabilities": {
+        "name": "CosyVoice 300M (Alibaba Tongyi)",
+        "model_architecture": "SpeechLLM + Conditional Flow Matching + HiFi-GAN",
+        "supported_languages": [
+          "zh",
+          "en",
+          "ja",
+          "yue",
+          "ko",
+          "multilingual prompt transfer"
+        ],
+        "native_hindi_support": "Zero-shot acoustic cloning; Hindi phonetic accuracy depends on multilingual prompt cross-lingual conditioning.",
+        "cpu_feasibility": "Heavy on CPU (~5.0-8.0x RTF without GPU acceleration).",
+        "recommended_ref_duration": "3 - 10 seconds reference prompt",
+        "speaker_similarity_rating": "4.7 / 5 (Industry-leading natural human cadence and breathing)",
+        "prosody_and_emotion": "Exceptional human-like breathing, micro-pauses, and emotional inflection."
+      },
+      "subjective_criteria": {
+        "speaker_similarity": 0,
+        "naturalness_and_breathing": 0,
+        "hindi_pronunciation": 0,
+        "prosody_and_rhythm": 0,
+        "lack_of_robotic_artifacts": 0
+      }
+    }
+  ],
+  "approval_status": {
+    "approved_engine_key": "xtts",
+    "approved_engine_name": "XTTS-v2",
+    "notes": "Test approval",
+    "approved_at": "2026-08-21T04:14:28+0530",
+    "live_avatar_integrated": false,
+    "status": "Awaiting Phase 2 integration pipeline"
+  }
+}

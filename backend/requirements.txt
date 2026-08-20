@@ -10,3 +10,7 @@ openai
 groq
 boto3
 supabase
+numpy
+soundfile
+scipy
+imageio-ffmpeg

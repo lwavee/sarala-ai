@@ -118,53 +118,7 @@ export default function SaralaAvatar3D({
 
   return (
     <div className="relative w-full h-full min-h-[260px] flex flex-col items-center justify-center select-none overflow-hidden">
-      {/* Top Quality & Gesture Quick Bar */}
-      <div className="absolute top-2 right-4 z-30 flex items-center gap-2 bg-black/50 backdrop-blur-md p-1.5 rounded-2xl border border-white/15 shadow-xl">
-        <div className="flex items-center gap-1 border-r border-white/10 pr-2">
-          {(["AUTO", "HIGH", "MED", "LOW"] as const).map((lvl) => {
-            const qVal = (lvl === "MED" ? "MEDIUM" : lvl) as QualityLevel;
-            return (
-              <button
-                key={lvl}
-                onClick={() => handleQualityChange(qVal)}
-                className={`px-2.5 py-1 text-[10px] font-semibold rounded-lg transition-all ${
-                  quality === qVal
-                    ? "bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md shadow-pink-500/30"
-                    : "text-slate-400 hover:text-white"
-                }`}
-                title={`Set 3D Quality to ${lvl}`}
-              >
-                {lvl}
-              </button>
-            );
-          })}
-        </div>
 
-        {/* Quick Micro-gesture triggers */}
-        <div className="flex items-center gap-1 pl-1">
-          <button
-            onClick={() => triggerManualGesture("greetingWave")}
-            className="p-1.5 text-slate-400 hover:text-pink-300 hover:bg-white/10 rounded-lg transition-all"
-            title="Trigger Greeting Wave"
-          >
-            <Hand size={14} />
-          </button>
-          <button
-            onClick={() => triggerManualGesture("thinkingPose")}
-            className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-white/10 rounded-lg transition-all"
-            title="Trigger Thinking Pose"
-          >
-            <Brain size={14} />
-          </button>
-          <button
-            onClick={() => triggerManualGesture("explainOpenHands")}
-            className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-white/10 rounded-lg transition-all"
-            title="Trigger Explaining Gesture"
-          >
-            <Activity size={14} />
-          </button>
-        </div>
-      </div>
 
       {/* 3D WebGL Canvas Viewport */}
       <div

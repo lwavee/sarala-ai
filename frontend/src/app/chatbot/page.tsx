@@ -21,11 +21,13 @@ export default function ChatbotPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [themeMode, setThemeMode] = useState<string>("dark");
   
-  // Real Human Voice Assistant States
+  // Real Human Cloned Voice Assistant States
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const activeMode = localStorage.getItem("sarla_theme_mode") || "dark";
@@ -37,8 +39,7 @@ export default function ChatbotPage() {
     };
 
     const handleNewChat = () => {
-      window.speechSynthesis?.cancel();
-      setIsSpeaking(false);
+      stopSpeaking();
       setMessages([
         { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
       ]);
@@ -47,17 +48,10 @@ export default function ChatbotPage() {
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sarla_new_chat", handleNewChat);
 
-    // Warm up speech synthesis voices
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.getVoices();
-    }
-
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sarla_new_chat", handleNewChat);
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopSpeaking();
     };
   }, []);
 
@@ -69,28 +63,28 @@ export default function ChatbotPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Clean text for speech output (strip emojis & markdown formatting)
+  // Clean text for speech output (strip emojis, markdown, special formatting)
   const cleanTextForSpeech = (rawText: string) => {
     return rawText
       .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
       .replace(/\*\*(.*?)\*\*/g, "$1")
       .replace(/#(.*?)\n/g, "$1")
       .replace(/`(.*?)`/g, "$1")
+      .replace(/[\\*_{}[\]()#+\-.!]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   };
 
-  // Speak Sarla's response using natural female voice
-  const speakText = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-
+  // Browser speech synthesis fallback
+  const fallbackBrowserSpeech = (cleaned: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setIsSpeaking(false);
+      setIsVoiceLoading(false);
+      return;
+    }
     window.speechSynthesis.cancel();
-    const cleaned = cleanTextForSpeech(text);
-    if (!cleaned) return;
-
     const utterance = new SpeechSynthesisUtterance(cleaned);
     const voices = window.speechSynthesis.getVoices();
-
-    // Search for best Indian / Hinglish female voice
     const femaleVoice = voices.find(v => 
       v.name.includes("Swara") || 
       v.name.includes("Neerja") || 
@@ -100,25 +94,77 @@ export default function ChatbotPage() {
       v.lang.includes("en-IN")
     ) || voices.find(v => v.name.includes("Female")) || voices[0];
 
-    if (femaleVoice) {
-      utterance.voice = femaleVoice;
-    }
-
-    utterance.pitch = 1.05; // Slightly higher pitch for natural female voice tone
-    utterance.rate = 1.0;   // Natural speech rate
-
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
+    if (femaleVoice) utterance.voice = femaleVoice;
+    utterance.pitch = 1.05;
+    utterance.rate = 1.0;
+    utterance.onstart = () => { setIsSpeaking(true); setIsVoiceLoading(false); };
+    utterance.onend = () => { setIsSpeaking(false); setIsVoiceLoading(false); };
+    utterance.onerror = () => { setIsSpeaking(false); setIsVoiceLoading(false); };
     window.speechSynthesis.speak(utterance);
   };
 
+  // Speak Sarla's response using authentic local cloned voice (XTTS-v2)
+  const speakText = async (rawText: string) => {
+    stopSpeaking();
+    const cleaned = cleanTextForSpeech(rawText);
+    if (!cleaned) return;
+
+    setIsSpeaking(true);
+    setIsVoiceLoading(true);
+
+    const isHindi = /[\u0900-\u097F]/.test(cleaned) || /hai|hoon|kya|aap|main|namaste|shukriya|kaise|theek/i.test(cleaned);
+    const lang = isHindi ? "hi" : "en";
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/voice/synthesize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleaned, language: lang })
+      });
+
+      if (!res.ok) throw new Error("Voice synthesis API returned error");
+      const data = await res.json();
+
+      if (data.success && data.audio_url) {
+        const fullAudioUrl = `${apiUrl}${data.audio_url}`;
+        const audio = new Audio(fullAudioUrl);
+        audioPlayerRef.current = audio;
+
+        audio.onplay = () => {
+          setIsSpeaking(true);
+          setIsVoiceLoading(false);
+        };
+        audio.onended = () => {
+          setIsSpeaking(false);
+          setIsVoiceLoading(false);
+        };
+        audio.onerror = () => {
+          console.warn("Cloned audio playback failed, switching to browser TTS fallback.");
+          fallbackBrowserSpeech(cleaned);
+        };
+
+        await audio.play();
+      } else {
+        fallbackBrowserSpeech(cleaned);
+      }
+    } catch (err) {
+      console.warn("Cloned voice synthesis unreachable, using browser TTS:", err);
+      fallbackBrowserSpeech(cleaned);
+    }
+  };
+
   const stopSpeaking = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+      audioPlayerRef.current = null;
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+    setIsVoiceLoading(false);
   };
 
   const toggleVoiceMode = () => {
@@ -326,11 +372,15 @@ export default function ChatbotPage() {
             </h2>
             <p className="text-xs text-slate-400 flex items-center gap-1.5">
               <span>Aapki Intelligent AI Assistant</span>
-              {isSpeaking && (
-                <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
-                  <Radio size={12} className="animate-spin" /> Speaking...
+              {isVoiceLoading ? (
+                <span className="text-indigo-400 font-semibold flex items-center gap-1 animate-pulse">
+                  <Radio size={12} className="animate-spin" /> Cloned Voice Generating...
                 </span>
-              )}
+              ) : isSpeaking ? (
+                <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
+                  <Radio size={12} className="animate-pulse" /> Sarala Voice Speaking...
+                </span>
+              ) : null}
             </p>
           </div>
         </div>
@@ -354,16 +404,12 @@ export default function ChatbotPage() {
                 ? "bg-pink-500/20 border-pink-500/50 text-pink-300 hover:bg-pink-500/30" 
                 : "bg-slate-800/60 border-white/10 text-slate-400 hover:text-white"
             }`}
-            title={isVoiceEnabled ? "Mute Sarla's Voice Response" : "Enable Sarla's Voice Response"}
+            title={isVoiceEnabled ? "Mute Sarla's Voice Response" : "Enable Sarla's Cloned Voice Response"}
           >
-            {isVoiceEnabled ? <Volume2 size={16} className={isSpeaking ? "animate-pulse text-pink-400" : ""} /> : <VolumeX size={16} />}
-            <span className="hidden sm:inline">{isVoiceEnabled ? "Voice ON" : "Voice OFF"}</span>
+            {isVoiceEnabled ? <Volume2 size={16} className={isSpeaking ? "animate-pulse text-pink-400" : isVoiceLoading ? "animate-spin text-indigo-400" : ""} /> : <VolumeX size={16} />}
+            <span className="hidden sm:inline">{isVoiceEnabled ? "Cloned Voice ON" : "Voice OFF"}</span>
           </button>
 
-          <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${currentBadge.color}`}>
-            <BadgeIcon size={14} />
-            <span>{currentBadge.label}</span>
-          </div>
         </div>
       </header>
 

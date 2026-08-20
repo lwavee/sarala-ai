@@ -1,0 +1,8 @@
+{
+  "approved_engine_key": "xtts",
+  "approved_engine_name": "XTTS-v2",
+  "notes": "Test approval",
+  "approved_at": "2026-08-21T04:14:28+0530",
+  "live_avatar_integrated": false,
+  "status": "Awaiting Phase 2 integration pipeline"
+}

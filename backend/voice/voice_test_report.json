@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-08-20T22:02:12Z",
+  "hardware": {
+    "device": "cpu",
+    "model": "tts_models/multilingual/multi-dataset/xtts_v2",
+    "model_load_time_seconds": 39.52
+  },
+  "reference_sample": "E:\\sarlaai\\sarala-ai\\backend\\voice\\samples\\sarala_reference.wav",
+  "results": [
+    {
+      "test_id": "hindi_greeting",
+      "language": "hi",
+      "success": false,
+      "error": "The current model class (GPT2InferenceModel) is not compatible with `.generate()`, as it doesn't have a language model head. Please use one of the following classes instead: {'GPT2LMHeadModel'}"
+    },
+    {
+      "test_id": "english_intro",
+      "language": "en",
+      "success": false,
+      "error": "The current model class (GPT2InferenceModel) is not compatible with `.generate()`, as it doesn't have a language model head. Please use one of the following classes instead: {'GPT2LMHeadModel'}"
+    }
+  ]
+}

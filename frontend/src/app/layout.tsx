@@ -7,7 +7,7 @@ import Link from "next/link";
 import { 
   MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart, 
   Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User,
-  Video, Radio
+  Video, Radio, Mic
 } from "lucide-react";
 import LiveModeModal from "@/components/live/LiveModeModal";
 
@@ -58,16 +58,24 @@ export default function RootLayout({
     window.addEventListener("sarla_open_live", handleOpenLive);
 
     // Load User Session
+    const defaultUserSession = {
+      name: "Naveen",
+      nickname: "avee",
+      email: "loharavee@gmail.com",
+      is_naveen: true,
+    };
     const savedSession = localStorage.getItem("sarla_user_session");
     if (savedSession) {
       try {
         const sessionObj = JSON.parse(savedSession);
         setUserSession(sessionObj);
       } catch (e) {
-        setIsAuthOpen(true);
+        setUserSession(defaultUserSession);
+        localStorage.setItem("sarla_user_session", JSON.stringify(defaultUserSession));
       }
     } else {
-      setIsAuthOpen(true);
+      setUserSession(defaultUserSession);
+      localStorage.setItem("sarla_user_session", JSON.stringify(defaultUserSession));
     }
 
     // Load Chat Threads
@@ -236,7 +244,7 @@ export default function RootLayout({
       <body suppressHydrationWarning className={`${inter.className} flex h-screen overflow-hidden mode-${themeMode}`}>
         
         {/* Gemini-Style Sidebar */}
-        <aside className="w-64 border-r border-white/10 flex flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20">
+        <aside suppressHydrationWarning className="w-64 border-r border-white/10 flex flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20">
           <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
             {/* Sarla AI Brand Logo */}
             <div className="flex items-center gap-3 px-2 mb-6">
@@ -281,12 +289,13 @@ export default function RootLayout({
                 <MessageSquare size={18} className="text-indigo-400" />
                 <span>Chat</span>
               </Link>
+
               <Link
-                href="/project"
+                href="/voice-benchmark"
                 className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
               >
-                <FolderKanban size={18} className="text-cyan-400" />
-                <span>Projects</span>
+                <Mic size={18} className="text-pink-400" />
+                <span>Voice Benchmark</span>
               </Link>
             </nav>
 
@@ -349,7 +358,7 @@ export default function RootLayout({
         </aside>
 
         {/* Main Content Viewport */}
-        <main className="flex-1 flex flex-col h-full relative overflow-hidden">
+        <main suppressHydrationWarning className="flex-1 flex flex-col h-full relative overflow-hidden">
           {children}
         </main>
 

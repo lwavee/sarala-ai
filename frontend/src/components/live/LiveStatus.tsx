@@ -1,21 +1,43 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { ConnectionStatus } from "./useLiveSession";
-import { Radio, X, ShieldCheck, Settings } from "lucide-react";
+import { Radio, X, ShieldCheck, Settings, Maximize2, Video } from "lucide-react";
 
 interface LiveStatusProps {
   connectionStatus: ConnectionStatus;
   onClose: () => void;
   onOpenSettings?: () => void;
+  avatarState?: string;
 }
 
-export default function LiveStatus({ connectionStatus, onClose, onOpenSettings }: LiveStatusProps) {
+export default function LiveStatus({
+  connectionStatus,
+  onClose,
+  onOpenSettings,
+  avatarState = "idle",
+}: LiveStatusProps) {
+  const [callSeconds, setCallSeconds] = useState<number>(0);
+
+  // Live video call timer counting up seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCallSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTimer = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const getStatusDisplay = () => {
     switch (connectionStatus) {
       case "connected":
         return {
-          text: "Connected",
+          text: "1080p HD",
           dotColor: "bg-emerald-400 animate-pulse",
           textColor: "text-emerald-400",
         };
@@ -37,51 +59,85 @@ export default function LiveStatus({ connectionStatus, onClose, onOpenSettings }
 
   const status = getStatusDisplay();
 
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
+
   return (
-    <header className="w-full flex items-center justify-between px-4 py-3 md:px-8 md:py-4 glass rounded-2xl border border-white/10 z-30 mb-4">
-      {/* Left: Brand & Live Indicator */}
+    <header className="w-full flex items-center justify-between px-4 py-2.5 md:px-6 md:py-3 glass rounded-2xl border border-white/10 z-30 mb-2 shadow-2xl backdrop-blur-xl">
+      {/* Left: Live Indicator & Call Duration */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/40 text-red-300 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-          <Radio size={14} className="animate-spin text-red-400" />
-          <span>LIVE</span>
+        <div className="flex items-center gap-2 bg-red-600/30 border border-red-500/50 text-red-300 px-3 py-1 rounded-full text-xs font-extrabold tracking-wider animate-pulse">
+          <span className="w-2 h-2 rounded-full bg-red-500"></span>
+          <span>LIVE CALL</span>
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-slate-200">
+          <span>{formatTimer(callSeconds)}</span>
         </div>
 
         <div>
-          <h2 className="text-base md:text-lg font-bold text-white tracking-wide flex items-center gap-2">
-            Sarala AI Live
-            <ShieldCheck size={16} className="text-cyan-400 hidden sm:inline" />
+          <h2 className="text-sm md:text-base font-bold text-white tracking-wide flex items-center gap-2">
+            Sarala AI
+            <ShieldCheck size={14} className="text-cyan-400" />
           </h2>
-          <p className="text-[11px] text-slate-400 hidden sm:block">
-            Real-Time AI Companion & Voice Video Assistant
-          </p>
         </div>
       </div>
 
-      {/* Right: Connection Status, Avatar Settings & Exit Button */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-medium">
-          <span className={`w-2 h-2 rounded-full ${status.dotColor}`} />
+      {/* Center: Interactive AI Call Status */}
+      <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 border border-white/10 text-xs text-slate-300">
+        <span className={`w-2 h-2 rounded-full ${status.dotColor}`} />
+        <span className="capitalize text-pink-300 font-medium">
+          {avatarState === "speaking"
+            ? "Sarala is speaking..."
+            : avatarState === "listening"
+            ? "Listening to you..."
+            : avatarState === "thinking"
+            ? "Sarala is thinking..."
+            : "Video Call Connected"}
+        </span>
+      </div>
+
+      {/* Right: HD Status, Fullscreen & Exit Call */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold">
+          <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor}`} />
           <span className={status.textColor}>{status.text}</span>
         </div>
+
+        <button
+          onClick={toggleFullScreen}
+          aria-label="Toggle full screen"
+          className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-all border border-white/10 cursor-pointer"
+          title="Toggle Fullscreen"
+        >
+          <Maximize2 size={16} />
+        </button>
 
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
-            aria-label="Avatar Settings & Model Upload"
-            className="p-2.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 transition-all transform hover:scale-105 cursor-pointer"
-            title="Upload Custom 3D Avatar (.vrm / .glb / .gltf)"
+            aria-label="Avatar Settings"
+            className="p-2 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 transition-all cursor-pointer"
+            title="Upload Custom 3D Avatar"
           >
-            <Settings size={18} />
+            <Settings size={16} />
           </button>
         )}
 
         <button
           onClick={onClose}
-          aria-label="Close live mode"
-          className="p-2.5 rounded-full bg-white/10 hover:bg-red-500/30 text-slate-300 hover:text-white transition-all transform hover:scale-105 border border-white/15 cursor-pointer"
-          title="Exit Live Video Mode"
+          aria-label="Exit video call"
+          className="p-2 rounded-full bg-red-600/30 hover:bg-red-600 text-red-200 hover:text-white transition-all border border-red-500/50 cursor-pointer"
+          title="End Video Call"
         >
-          <X size={20} />
+          <X size={18} />
         </button>
       </div>
     </header>

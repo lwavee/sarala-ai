@@ -1,5 +1,7 @@
 import sys
 import os
+import json
+import time
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -138,3 +140,130 @@ async def chat(req: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok", "agent": "Sarla AI"}
+
+
+# ── Voice Cloning Endpoints (Isolated Module) ────────────────────────────────
+import re
+from voice.xtts_engine import voice_engine
+
+class VoiceSynthesizeRequest(BaseModel):
+    text: str
+    language: str = "hi"
+
+@app.get("/voice/health")
+async def voice_health():
+    """Health check for Sarala local voice cloning engine."""
+    status = voice_engine.get_status()
+    return JSONResponse(status)
+
+@app.post("/voice/synthesize")
+async def voice_synthesize(req: VoiceSynthesizeRequest):
+    """Synthesize speech using cloned Sarala voice on CPU."""
+    txt = req.text.strip()
+    if not txt:
+        return JSONResponse({"success": False, "error": "Text cannot be empty"}, status_code=400)
+    
+    res = voice_engine.synthesize(txt, language=req.language)
+    if res.get("success"):
+        filename = res.get("filename")
+        return JSONResponse({
+            "success": True,
+            "filename": filename,
+            "audio_url": f"/voice/audio/{filename}",
+            "duration_sec": res.get("duration_sec"),
+            "latency_sec": res.get("latency_sec"),
+            "rtf": res.get("rtf"),
+            "language": req.language,
+            "device": res.get("device")
+        })
+    else:
+        return JSONResponse({
+            "success": False,
+            "error": res.get("error")
+        }, status_code=500)
+
+@app.get("/voice/audio/{filename}")
+async def get_voice_audio(filename: str):
+    """Serve synthesized audio WAV file safely."""
+    if not re.match(r"^[a-zA-Z0-9_\-]+\.wav$", filename):
+        return JSONResponse({"error": "Invalid filename format"}, status_code=400)
+    
+    file_path = os.path.join(voice_engine.output_dir, filename)
+    if not os.path.exists(file_path):
+        return JSONResponse({"error": "Audio file not found"}, status_code=404)
+    
+    return FileResponse(file_path, media_type="audio/wav")
+
+
+# ── Isolated Voice Benchmark Endpoints ──────────────────────────────────────
+BENCHMARK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "voice", "benchmark")
+
+class ApproveEngineRequest(BaseModel):
+    engine_key: str
+    engine_name: str
+    notes: str = ""
+
+@app.get("/api/benchmark/report")
+async def get_benchmark_report():
+    """Returns the latest isolated voice engine benchmark report."""
+    report_file = os.path.join(BENCHMARK_DIR, "voice_benchmark_report.json")
+    if not os.path.exists(report_file):
+        return JSONResponse({"error": "Benchmark report not generated yet. Run benchmark first."}, status_code=404)
+    
+    try:
+        with open(report_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return JSONResponse(data)
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to read report: {str(e)}"}, status_code=500)
+
+@app.get("/api/benchmark/audio/{filename}")
+async def get_benchmark_audio(filename: str):
+    """Streams isolated voice benchmark WAV files."""
+    if not re.match(r"^[a-zA-Z0-9_\-]+\.wav$", filename):
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    
+    file_path = os.path.join(BENCHMARK_DIR, filename)
+    if not os.path.exists(file_path):
+        # Fallback to voice/samples if reference audio
+        sample_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "voice", "samples", filename)
+        if os.path.exists(sample_path):
+            return FileResponse(sample_path, media_type="audio/wav")
+        return JSONResponse({"error": f"Benchmark audio file {filename} not found."}, status_code=404)
+    
+    return FileResponse(file_path, media_type="audio/wav")
+
+@app.post("/api/benchmark/approve")
+async def approve_engine(req: ApproveEngineRequest):
+    """Records manual approval of preferred voice engine without mutating LiveAvatar."""
+    report_file = os.path.join(BENCHMARK_DIR, "voice_benchmark_report.json")
+    approval_file = os.path.join(os.path.dirname(BENCHMARK_DIR), "selected_engine.json")
+    
+    approval_data = {
+        "approved_engine_key": req.engine_key,
+        "approved_engine_name": req.engine_name,
+        "notes": req.notes,
+        "approved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "live_avatar_integrated": False,
+        "status": "Awaiting Phase 2 integration pipeline"
+    }
+    
+    try:
+        with open(approval_file, "w", encoding="utf-8") as f:
+            json.dump(approval_data, f, indent=2)
+            
+        if os.path.exists(report_file):
+            with open(report_file, "r", encoding="utf-8") as f:
+                rep = json.load(f)
+            rep["approval_status"] = approval_data
+            with open(report_file, "w", encoding="utf-8") as f:
+                json.dump(rep, f, indent=2, ensure_ascii=False)
+                
+        return JSONResponse({
+            "success": True,
+            "message": f"Successfully approved {req.engine_name}. Stored in selected_engine.json. LiveAvatar remains isolated until explicitly integrated.",
+            "approval": approval_data
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
