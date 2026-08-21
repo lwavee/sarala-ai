@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from dotenv import load_dotenv
 from core.logger import logger
@@ -8,8 +9,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
+HAS_GENAI = False
 USE_NEW_GENAI = False
 USE_LEGACY_GENAI = False
+genai = None
+genai_legacy = None
 
 try:
     from google import genai
@@ -17,12 +21,14 @@ try:
     HAS_GENAI = True
     USE_NEW_GENAI = True
 except ImportError:
-    try:
-        import google.generativeai as genai_legacy
-        HAS_GENAI = True
-        USE_LEGACY_GENAI = True
-    except ImportError:
-        HAS_GENAI = False
+    pass
+
+try:
+    import google.generativeai as genai_legacy
+    HAS_GENAI = True
+    USE_LEGACY_GENAI = True
+except ImportError:
+    pass
 
 
 class LLMEngine:
@@ -45,12 +51,20 @@ class LLMEngine:
         
         if HAS_GENAI and self.api_key:
             try:
-                if USE_NEW_GENAI:
-                    self.client = genai.Client(api_key=self.api_key)
-                elif USE_LEGACY_GENAI:
+                if USE_NEW_GENAI and genai:
+                    try:
+                        self.client = genai.Client(api_key=self.api_key)
+                    except Exception as e:
+                        logger.warning(f"Google GenAI Client init failed: {e}. Trying legacy...")
+                        if USE_LEGACY_GENAI and genai_legacy:
+                            genai_legacy.configure(api_key=self.api_key)
+                            self.client = genai_legacy.GenerativeModel('gemini-1.5-flash')
+                elif USE_LEGACY_GENAI and genai_legacy:
                     genai_legacy.configure(api_key=self.api_key)
                     self.client = genai_legacy.GenerativeModel('gemini-1.5-flash')
-                logger.info("Gemini Client initialized.")
+                
+                if self.client:
+                    logger.info("Gemini Client initialized.")
             except Exception as e:
                 logger.error(f"Gemini Init Error: {e}")
 
@@ -161,7 +175,8 @@ class LLMEngine:
         # 2. Secondary Engine: Google Gemini (if valid API key available)
         if self.client and self.api_key and self.api_key.startswith("AIzaSy"):
             try:
-                if USE_NEW_GENAI:
+                # Case 1: New Google GenAI SDK (Client with client.models.generate_content)
+                if hasattr(self.client, "models"):
                     for model_name in ["gemini-2.0-flash", "gemini-1.5-flash"]:
                         try:
                             response = self.client.models.generate_content(
@@ -170,14 +185,18 @@ class LLMEngine:
                             )
                             duration = time.time() - start_time
                             logger.info(f"Gemini ({model_name}) responded in {duration:.2f}s")
-                            return response.text
-                        except Exception:
+                            if response and hasattr(response, "text") and response.text:
+                                return response.text
+                        except Exception as m_err:
+                            logger.debug(f"Gemini {model_name} attempt failed: {m_err}")
                             continue
-                elif USE_LEGACY_GENAI:
+                # Case 2: Legacy Google GenerativeAI SDK (GenerativeModel with client.generate_content)
+                elif hasattr(self.client, "generate_content"):
                     response = self.client.generate_content(prompt)
                     duration = time.time() - start_time
                     logger.info(f"Gemini (Legacy) responded in {duration:.2f}s")
-                    return response.text
+                    if response and hasattr(response, "text") and response.text:
+                        return response.text
             except Exception as gem_err:
                 logger.warning(f"Gemini attempt failed: {gem_err}")
 
@@ -189,7 +208,8 @@ class LLMEngine:
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=350 if is_live else 800
                 )
-                return res.choices[0].message.content
+                if res.choices and res.choices[0].message.content:
+                    return res.choices[0].message.content
             except Exception as oai_err:
                 logger.warning(f"OpenAI fallback failed: {oai_err}")
 

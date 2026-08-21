@@ -218,7 +218,7 @@ def evaluate_audio_quality(data: np.ndarray, sr: int) -> Dict[str, Any]:
         total_score *= 0.6
 
     return {
-        "score": round(float(total_score), 2),
+        "score": round(total_score, 2),
         "rms": round(rms, 4),
         "peak": round(peak, 4),
         "duration": round(duration, 2),

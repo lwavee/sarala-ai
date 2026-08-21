@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -10,12 +11,14 @@ from pydantic import BaseModel
 from core.brain import Brain
 from core.logger import logger
 
-# ── App Setup ────────────────────────────────────────────────────────────────
-app = FastAPI(title="Sarla AI API", version="1.0.0")
-
-@app.on_event("startup")
-async def startup_event():
+# ── Lifespan Context Manager ──────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Sarla Web Server is starting up...")
+    yield
+
+# ── App Setup ────────────────────────────────────────────────────────────────
+app = FastAPI(title="Sarla AI API", version="1.0.0", lifespan=lifespan)
 
 allowed_origins = [
     "http://localhost:3000",

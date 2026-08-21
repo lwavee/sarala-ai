@@ -8,6 +8,8 @@ class ToolExecutor:
         pass
 
     def open_application(self, app_name: str) -> str:
+        if not app_name:
+            return "Application name specify nahi kiya gaya."
         app_name = app_name.lower().strip()
         try:
             if app_name in ["browser", "web browser", "chrome", "edge"]:
@@ -33,6 +35,8 @@ class ToolExecutor:
             return f"An error occurred while trying to open {app_name}: {str(e)}"
 
     def play_youtube(self, query: str) -> str:
+        if not query:
+            return "YouTube search query specify nahi ki gayi."
         try:
             import urllib.parse
             encoded_query = urllib.parse.quote(query)
@@ -43,6 +47,8 @@ class ToolExecutor:
             return f"Failed to play on YouTube: {str(e)}"
 
     def search_google(self, query: str) -> str:
+        if not query:
+            return "Google search query specify nahi ki gayi."
         try:
             import urllib.parse
             encoded_query = urllib.parse.quote(query)

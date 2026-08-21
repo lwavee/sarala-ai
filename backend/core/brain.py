@@ -1,3 +1,4 @@
+from typing import Optional, Dict, Any, List
 from memory.storage import MemoryStorage
 from tools.executor import ToolExecutor
 from core.agent import Agent
@@ -74,13 +75,23 @@ class Brain:
             if action == "empty":
                 return "Kuch boliye na 🤗"
 
+            target = intent.get("target")
             # Execute Tools
-            if action == "open":
-                result = self.tools.open_application(intent.get("target"))
+            if not target or not isinstance(target, str):
+                if action == "open":
+                    result = "Kaunsi application open karni hai, batayein? 🤔"
+                elif action == "play_youtube":
+                    result = "YouTube par kya chalana hai? 🎵"
+                elif action == "search_google":
+                    result = "Google par kya search karna hai? 🔍"
+                else:
+                    result = "Kuch samajh nahi aaya 😅"
+            elif action == "open":
+                result = self.tools.open_application(target)
             elif action == "play_youtube":
-                result = self.tools.play_youtube(intent.get("target"))
+                result = self.tools.play_youtube(target)
             elif action == "search_google":
-                result = self.tools.search_google(intent.get("target"))
+                result = self.tools.search_google(target)
             else:
                 result = "Kuch samajh nahi aaya 😅"
                 
@@ -171,20 +182,24 @@ class Brain:
 
         if action == "remember":
             key = intent.get("key")
-            value = intent.get("value", "").strip()
-            if not value:
+            value = str(intent.get("value", "")).strip()
+            if not key or not value:
                 return "Hmm, value samajh nahi aayi 🤔"
-            self.memory.remember(key, value)
-            label = KEY_DISPLAY.get(key, (key, f"{value} — yaad rakh liya! ✅"))[0]
+            key_str = str(key)
+            self.memory.remember(key_str, value)
+            label = KEY_DISPLAY.get(key_str, (key_str, f"{value} — yaad rakh liya! ✅"))[0]
             return f"Done! Aapka {label}: **{value}** — permanently yaad kar liya 💾"
 
         if action == "recall":
             key = intent.get("key")
-            value = self.memory.recall(key)
+            if not key:
+                return "Mujhe samajh nahi aaya kya yaad dilana hai 🤔"
+            key_str = str(key)
+            value = self.memory.recall(key_str)
             if value:
-                template = KEY_DISPLAY.get(key, ("?", "{value} hai"))[1]
+                template = KEY_DISPLAY.get(key_str, ("?", "{value} hai"))[1]
                 return template.format(value=value)
-            label = KEY_DISPLAY.get(key, (key, ""))[0]
+            label = KEY_DISPLAY.get(key_str, (key_str, ""))[0]
             return f"Mujhe aapka {label} abhi pata nahi 🙁 Batayein: 'mera {label} X hai'"
 
         if action == "remember_fact":
@@ -198,7 +213,7 @@ class Brain:
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
 
-    def _llm_fallback(self, user_input: str, domain: str = None, theme_mode: str = "dark", is_live: bool = False) -> str:
+    def _llm_fallback(self, user_input: str, domain: Optional[str] = None, theme_mode: str = "dark", is_live: bool = False) -> str:
         """Build rich context from memory + RAG and pass to LLM."""
         self._log("user", user_input)
 
