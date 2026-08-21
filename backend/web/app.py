@@ -71,6 +71,7 @@ class ChatRequest(BaseModel):
     theme_mode: str = "dark"
     user_name: str = ""
     user_nickname: str = ""
+    is_live: bool = False
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/")
@@ -119,14 +120,16 @@ async def chat(req: ChatRequest):
             "audio_url": None
         })
     
-    logger.info(f"User Request: {msg[:50]}... (User: {req.user_name}, Theme Mode: {req.theme_mode})")
+    logger.info(f"User Request: {msg[:50]}... (User: {req.user_name}, Theme Mode: {req.theme_mode}, Live: {req.is_live})")
     try:
         response = brain.process_input(
             msg, 
             theme_mode=req.theme_mode, 
             user_name=req.user_name, 
-            user_nickname=req.user_nickname
+            user_nickname=req.user_nickname,
+            is_live=req.is_live
         )
+
         logger.info("Sarla responded successfully.")
         emotion, gesture = classify_emotion(response)
 

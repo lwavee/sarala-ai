@@ -34,7 +34,7 @@ class Brain:
         self.knowledge.index_documents()
         self._awaiting_name = False  # Multi-turn state flag
 
-    def process_input(self, user_input: str, theme_mode: str = "dark", user_name: str = "", user_nickname: str = "") -> str:
+    def process_input(self, user_input: str, theme_mode: str = "dark", user_name: str = "", user_nickname: str = "", is_live: bool = False) -> str:
         text = user_input.strip()
         if not text:
             return "Kuch to boliye yaar! 😄"
@@ -105,7 +105,6 @@ class Brain:
                 self._log("sarla", reply)
                 return reply
             else:
-                # Normal Memory Actions
                 reply = self._handle_memory(intent, user_input)
                 self._log("user", user_input)
                 self._log("sarla", reply)
@@ -113,7 +112,8 @@ class Brain:
 
         # ---- Search (RAG Domain) ----
         if intent_type == "search":
-            return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode)
+
+            return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode, is_live=is_live)
 
         # ---- Chat ----
         if intent_type == "chat":
@@ -158,7 +158,7 @@ class Brain:
             
             else:
                 # Unknown or other chat actions → LLM with full context + RAG
-                return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode)
+                return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode, is_live=is_live)
 
         return "Kuch samajh nahi aaya 😅 Dobara bolein?"
 
@@ -176,7 +176,7 @@ class Brain:
                 return "Hmm, value samajh nahi aayi 🤔"
             self.memory.remember(key, value)
             label = KEY_DISPLAY.get(key, (key, f"{value} — yaad rakh liya! ✅"))[0]
-            return f"Done! Aapka {label}: **{value}** — permanently yaad kar liya �💾"
+            return f"Done! Aapka {label}: **{value}** — permanently yaad kar liya 💾"
 
         if action == "recall":
             key = intent.get("key")
@@ -198,7 +198,7 @@ class Brain:
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
 
-    def _llm_fallback(self, user_input: str, domain: str = None, theme_mode: str = "dark") -> str:
+    def _llm_fallback(self, user_input: str, domain: str = None, theme_mode: str = "dark", is_live: bool = False) -> str:
         """Build rich context from memory + RAG and pass to LLM."""
         self._log("user", user_input)
 
@@ -229,14 +229,11 @@ class Brain:
             
         context = "\n".join(context_parts)
 
-        reply = self.llm.get_response(user_input, external_context=context, theme_mode=theme_mode)
+        reply = self.llm.get_response(user_input, external_context=context, theme_mode=theme_mode, is_live=is_live)
         
-        # Add RAG source indicator if it was used
         if used_rag:
-            # We don't necessarily need to tell the user every time, but per logic:
             pass
         elif domain:
-            # If domain detected but no RAG results found
             reply = "Main general knowledge se bata rahi hoon... \n\n" + reply
 
         self._log("sarla", reply)
@@ -244,3 +241,4 @@ class Brain:
 
     def _log(self, role: str, text: str):
         self.memory.add_to_history(role, text)
+

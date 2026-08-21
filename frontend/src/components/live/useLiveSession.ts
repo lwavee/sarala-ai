@@ -273,10 +273,17 @@ export function useLiveSession({
     [isMuted, stopSpeaking, startAudioAmplitudeSimulation, speakText]
   );
 
+  const silenceTimerRef = useRef<any>(null);
+
   // Send message to Sarala AI API
   const sendToSarala = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
+
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
 
       setUserTranscript(text);
       setTranscriptHistory((prev) => [...prev, { sender: "user", text }]);
@@ -293,6 +300,7 @@ export function useLiveSession({
             theme_mode: themeMode,
             user_name: userName,
             user_nickname: userNickname,
+            is_live: true,
           }),
         });
 
@@ -329,7 +337,6 @@ export function useLiveSession({
     },
     [themeMode, userName, userNickname, playNaturalAudio, speakText]
   );
-
 
   // Start microphone speech recognition
   const startListening = useCallback(() => {
@@ -371,10 +378,28 @@ export function useLiveSession({
       recognition.onresult = (event: any) => {
         if (!isComponentMounted.current) return;
         let transcript = "";
+        let isFinal = false;
         for (let i = event.resultIndex; i < event.results.length; i++) {
           transcript += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            isFinal = true;
+          }
         }
-        setUserTranscript(transcript);
+        
+        if (transcript.trim()) {
+          setUserTranscript(transcript);
+
+          // Fast silence detection: trigger send after user pauses speaking
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          const silenceDelay = isFinal ? 400 : 850;
+          silenceTimerRef.current = setTimeout(() => {
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.stop();
+              } catch (e) {}
+            }
+          }, silenceDelay);
+        }
       };
 
       recognition.onerror = (event: any) => {
@@ -408,6 +433,7 @@ export function useLiveSession({
       setAvatarState("idle");
     }
   }, [avatarState, stopSpeaking, sendToSarala]);
+
 
   // Stop microphone listening
   const stopListening = useCallback(() => {

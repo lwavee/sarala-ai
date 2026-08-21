@@ -119,90 +119,79 @@ class LLMEngine:
             "3. BE HUMAN & CONSISTENT: Mode ke anusar natural human-like flow banaye rakhein.\n"
         )
 
-    def get_response(self, user_input: str, external_context: str = "", theme_mode: str = "dark") -> str:
-        """Get response from Gemini, fallback to Groq/xAI if failed."""
+    def get_response(self, user_input: str, external_context: str = "", theme_mode: str = "dark", is_live: bool = False) -> str:
+        """Get ultra-fast response from Groq LPUs or Gemini."""
         personality = self._build_personality(theme_mode)
-        prompt = f"{personality}\n\n"
+        
+        live_instruction = ""
+        if is_live:
+            live_instruction = "\n\n[LIVE VOICE CALL MODE: Keep your response short, conversational, and direct (1-2 natural spoken sentences). Absolutely no markdown headings, code blocks, or bullet lists.]"
+
+        prompt = f"{personality}{live_instruction}\n\n"
         if external_context:
             prompt += f"Context for this conversation:\n{external_context}\n\n"
         prompt += f"User: {user_input}"
 
-        logger.debug(f"Calling Gemini API for input: {user_input[:40]}...")
         start_time = time.time()
-        
-        try:
-            if not self.client:
-                raise Exception("Gemini client not available")
 
-            if USE_NEW_GENAI:
-                for model_name in ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest"]:
-                    try:
-                        response = self.client.models.generate_content(
-                            model=model_name,
-                            contents=prompt
-                        )
-                        duration = time.time() - start_time
-                        logger.info(f"Gemini ({model_name}) responded in {duration:.2f}s")
-                        return response.text
-                    except Exception as mod_err:
-                        logger.debug(f"Model {model_name} attempt: {mod_err}")
-                        continue
-                raise Exception("All Gemini models failed")
-            elif USE_LEGACY_GENAI:
-                response = self.client.generate_content(prompt)
-                duration = time.time() - start_time
-                logger.info(f"Gemini (Legacy) responded in {duration:.2f}s")
-                return response.text
-
-        except Exception as e:
-            logger.warning(f"Gemini failed: {e}")
-            
-            # Secondary Attempt: OpenAI if available
-            if self.openai_client:
+        # 1. Primary High-Speed Engine: Groq LPU (Sub-second latency)
+        if self.groq_key:
+            for model_name in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
                 try:
-                    logger.info("Attempting OpenAI fallback...")
-                    res = self.openai_client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": prompt}]
+                    from groq import Groq
+                    groq_client = Groq(api_key=self.groq_key)
+                    chat_completion = groq_client.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        model=model_name,
+                        max_tokens=350 if is_live else 800,
+                        temperature=0.7,
                     )
-                    return res.choices[0].message.content
-                except Exception as oai_err:
-                    logger.warning(f"OpenAI fallback failed: {oai_err}")
+                    reply = chat_completion.choices[0].message.content or ""
+                    # Strip reasoning tags if present
+                    if "<think>" in reply and "</think>" in reply:
+                        reply = re.sub(r'<think>[\s\S]*?</think>', '', reply).strip()
+                    duration = time.time() - start_time
+                    logger.info(f"Groq ({model_name}) responded in {duration:.2f}s")
+                    if reply:
+                        return reply
+                except Exception as groq_err:
+                    logger.debug(f"Groq {model_name} attempt failed: {groq_err}")
+                    continue
 
-            return self._groq_fallback(prompt)
+        # 2. Secondary Engine: Google Gemini (if valid API key available)
+        if self.client and self.api_key and self.api_key.startswith("AIzaSy"):
+            try:
+                if USE_NEW_GENAI:
+                    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+                        try:
+                            response = self.client.models.generate_content(
+                                model=model_name,
+                                contents=prompt
+                            )
+                            duration = time.time() - start_time
+                            logger.info(f"Gemini ({model_name}) responded in {duration:.2f}s")
+                            return response.text
+                        except Exception:
+                            continue
+                elif USE_LEGACY_GENAI:
+                    response = self.client.generate_content(prompt)
+                    duration = time.time() - start_time
+                    logger.info(f"Gemini (Legacy) responded in {duration:.2f}s")
+                    return response.text
+            except Exception as gem_err:
+                logger.warning(f"Gemini attempt failed: {gem_err}")
 
-    def _groq_fallback(self, prompt: str) -> str:
-        """Backup LLM using Groq (Llama-3)."""
-        logger.debug("Calling Groq API (Fallback)...")
-        start_time = time.time()
-        try:
-            from groq import Groq
-            client = Groq(api_key=self.groq_key)
-            chat_completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model="llama-3.3-70b-versatile",
-            )
-            duration = time.time() - start_time
-            logger.info(f"Groq responded in {duration:.2f}s")
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq Fallback failed: {e}")
-            return self._xai_fallback(prompt)
+        # 3. Tertiary Fallback: OpenAI if available
+        if self.openai_client:
+            try:
+                res = self.openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=350 if is_live else 800
+                )
+                return res.choices[0].message.content
+            except Exception as oai_err:
+                logger.warning(f"OpenAI fallback failed: {oai_err}")
 
-    def _xai_fallback(self, prompt: str) -> str:
-        """Backup LLM using xAI (Grok)."""
-        logger.debug("Calling xAI API (Fallback)...")
-        start_time = time.time()
-        try:
-            if not self.xai_client:
-                raise Exception("xAI client not initialized")
-            chat_completion = self.xai_client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model="grok-2-latest",
-            )
-            duration = time.time() - start_time
-            logger.info(f"xAI Grok responded in {duration:.2f}s")
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"xAI Fallback failed: {e}")
-            return "Maaf kijiye, abhi mera connection nahi chal raha hai. Thodi der mein try karein ji 😊"
+        return "Main sun rahi hoon! Bataiye, aaj main aapki kya madad kar sakti hoon? 😊"
+
