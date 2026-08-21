@@ -15,16 +15,20 @@ import sys
 import time
 import json
 import logging
+import io
 from pathlib import Path
 
 # Fix Windows console UTF-8 output for Hindi text
-try:
-    if sys.stdout:
+if isinstance(sys.stdout, io.TextIOWrapper):
+    try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    if sys.stderr:
+    except Exception:
+        pass
+if isinstance(sys.stderr, io.TextIOWrapper):
+    try:
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-except Exception:
-    pass
+    except Exception:
+        pass
 
 # Ensure non-interactive acceptance
 os.environ["COQUI_TOS_AGREED"] = "1"

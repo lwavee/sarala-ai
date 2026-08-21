@@ -16,10 +16,11 @@ import numpy as np
 import soundfile as sf
 
 # Setup stdout for UTF-8 in Windows environments
-try:
-    sys.stdout.reconfigure(encoding='utf-8')
-except Exception:
-    pass
+if isinstance(sys.stdout, io.TextIOWrapper):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 
 def get_ffmpeg_path() -> str:
@@ -82,14 +83,18 @@ def decode_audio_to_wav(file_path: str, ffmpeg_exe: str, target_sr: int = 22050)
                 try:
                     from scipy import signal
                     num_samples = int(len(data) * target_sr / sr)
-                    data = signal.resample(data, num_samples).astype(np.float32)
+                    resampled = signal.resample(data, num_samples)
+                    if isinstance(resampled, tuple):
+                        resampled = resampled[0]
+                    data = np.asarray(resampled, dtype=np.float32)
                     sr = target_sr
                 except ImportError:
                     # Linear interpolation fallback if scipy is not installed
                     duration = len(data) / sr
                     new_times = np.linspace(0, duration, int(duration * target_sr), endpoint=False)
                     old_times = np.linspace(0, duration, len(data), endpoint=False)
-                    data = np.interp(new_times, old_times, data).astype(np.float32)
+                    resampled = np.interp(new_times, old_times, data)
+                    data = np.asarray(resampled, dtype=np.float32)
                     sr = target_sr
             return data, sr
         except Exception:

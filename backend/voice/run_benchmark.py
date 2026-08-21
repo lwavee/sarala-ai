@@ -16,18 +16,22 @@ import time
 import json
 import shutil
 import logging
+import io
 from pathlib import Path
 import soundfile as sf
 import numpy as np
 
 # Configure UTF-8 for console output on Windows
-try:
-    if sys.stdout:
+if isinstance(sys.stdout, io.TextIOWrapper):
+    try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    if sys.stderr:
+    except Exception:
+        pass
+if isinstance(sys.stderr, io.TextIOWrapper):
+    try:
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-except Exception:
-    pass
+    except Exception:
+        pass
 
 # Ensure backend root is in sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent

@@ -6,15 +6,16 @@ so the user can perform subjective side-by-side listening tests on /voice-benchm
 
 import os
 import sys
+import io
 import numpy as np
 import soundfile as sf
 from scipy import signal
 
-try:
-    if sys.stdout:
+if isinstance(sys.stdout, io.TextIOWrapper):
+    try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-except Exception:
-    pass
+    except Exception:
+        pass
 
 BENCHMARK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark")
 XTTS_WAV = os.path.join(BENCHMARK_DIR, "xtts.wav")
