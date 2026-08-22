@@ -2,9 +2,12 @@
 Sarala AI - Natural Voice & Voice Cloning Engine
 =================================================
 Combines:
-1. True Voice Cloning from backend/assets/voice/ (via Coqui XTTS-v2 & master reference audio)
-2. Ultra-Natural Neural Indian Voices (via Edge-TTS Neural hi-IN-Swara / hi-IN-Madhur / en-IN-Neerja)
-3. Intelligent caching & text cleanup for high-speed, 100% human-like voice response.
+1. Online Chatterbox Hindi Voice Cloning (via HF Space ResembleAI/Chatterbox-Multilingual-TTS-hi)
+2. Ultra-Natural Neural Indian Voices (via Edge-TTS Neural hi-IN-Swara / en-IN-Neerja)
+3. True Voice Cloning from reference audio (via Coqui XTTS-v2, CPU-based)
+4. Intelligent caching & text cleanup for high-speed, human-like voice response.
+
+Provider selection is controlled by the SARALA_VOICE_PROVIDER environment variable.
 """
 
 import os
@@ -90,9 +93,12 @@ async def synthesize_neural_async(text: str, voice_name: str, output_path: str) 
 
 class NaturalVoiceManager:
     """
-    Unified voice manager supporting both:
-    1. Ultra-Natural Indian Neural Voice
-    2. Coqui XTTS-v2 Voice Cloning from user recordings
+    Unified voice manager supporting:
+    1. Online Chatterbox Hindi Voice Cloning (HF Space, GPU-powered)
+    2. Ultra-Natural Indian Neural Voice (Edge-TTS)
+    3. Coqui XTTS-v2 Voice Cloning from user recordings (local CPU)
+
+    Active provider is controlled by SARALA_VOICE_PROVIDER env var.
     """
 
     def __init__(self):
@@ -151,6 +157,38 @@ class NaturalVoiceManager:
             }
 
         t0 = time.time()
+
+        # Engine 0: Online Chatterbox Hindi Voice Cloning (HF Space, GPU-powered)
+        if engine in ("auto", "chatterbox_online"):
+            try:
+                from voice.chatterbox_online import chatterbox_voice
+                from voice import config as voice_config
+                ref_path = reference_wav or str(voice_config.get_reference_audio())
+                cb_res = chatterbox_voice.synthesize(
+                    text=cleaned,
+                    reference_audio=ref_path,
+                    exaggeration=voice_config.CHATTERBOX_EXAGGERATION,
+                    temperature=voice_config.CHATTERBOX_TEMPERATURE,
+                    cfg_weight=voice_config.CHATTERBOX_CFG_WEIGHT,
+                    seed=voice_config.CHATTERBOX_SEED,
+                    output_dir=str(self.output_dir),
+                )
+                if cb_res.get("success"):
+                    cb_res["engine"] = "chatterbox_online"
+                    cb_res["language"] = target_lang
+                    return cb_res
+                else:
+                    logger.warning(f"Chatterbox synthesis failed: {cb_res.get('error')}")
+                    if engine == "chatterbox_online":  # strict mode: no fallback
+                        return {
+                            "success": False,
+                            "error": cb_res.get('error', 'Chatterbox synthesis failed'),
+                            "provider": "chatterbox_online",
+                        }
+            except Exception as cb_err:
+                logger.warning(f"Chatterbox engine error: {cb_err}")
+                if engine == "chatterbox_online":
+                    return {"success": False, "error": str(cb_err), "provider": "chatterbox_online"}
 
         # Engine 1: Neural High-Fidelity Voice (Natural, expressive, instantaneous)
         if engine in ("auto", "neural"):
@@ -241,6 +279,47 @@ class NaturalVoiceManager:
             }
 
         t0 = time.time()
+
+        # Async Engine 0: Online Chatterbox Hindi (runs sync call in thread executor)
+        if engine in ("auto", "chatterbox_online"):
+            try:
+                import asyncio as _asyncio
+                from voice.chatterbox_online import chatterbox_voice
+                from voice import config as voice_config
+                ref_path = reference_wav or str(voice_config.get_reference_audio())
+
+                loop = _asyncio.get_event_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    cb_res = await loop.run_in_executor(
+                        pool,
+                        lambda: chatterbox_voice.synthesize(
+                            text=cleaned,
+                            reference_audio=ref_path,
+                            exaggeration=voice_config.CHATTERBOX_EXAGGERATION,
+                            temperature=voice_config.CHATTERBOX_TEMPERATURE,
+                            cfg_weight=voice_config.CHATTERBOX_CFG_WEIGHT,
+                            seed=voice_config.CHATTERBOX_SEED,
+                            output_dir=str(self.output_dir),
+                        )
+                    )
+
+                if cb_res.get("success"):
+                    cb_res["engine"] = "chatterbox_online"
+                    cb_res["language"] = target_lang
+                    return cb_res
+                else:
+                    logger.warning(f"Async Chatterbox failed: {cb_res.get('error')}")
+                    if engine == "chatterbox_online":
+                        return {
+                            "success": False,
+                            "error": cb_res.get('error', 'Chatterbox synthesis failed'),
+                            "provider": "chatterbox_online",
+                        }
+            except Exception as cb_err:
+                logger.warning(f"Async Chatterbox engine error: {cb_err}")
+                if engine == "chatterbox_online":
+                    return {"success": False, "error": str(cb_err), "provider": "chatterbox_online"}
 
         if engine in ("auto", "neural"):
             voice_name = NEURAL_VOICES.get(target_lang, NEURAL_VOICES["hi"])

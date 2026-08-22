@@ -22,10 +22,17 @@ interface VoiceHealthStatus {
   status: string;
   model_loaded: boolean;
   device: string;
-  reference_audio_exists: boolean;
+  reference_audio_exists?: boolean;
   reference_audio_path?: string;
+  reference_exists?: boolean;
+  reference_audio?: string;
   supported_languages?: string[];
   output_dir?: string;
+  active_provider?: string;
+  voice_enabled?: boolean;
+  chatterbox_space?: string;
+  chatterbox_online?: boolean;
+  chatterbox_status?: string;
   error?: string;
 }
 
@@ -34,20 +41,23 @@ interface SynthesisResult {
   audio_url: string;
   duration_sec: number;
   latency_sec: number;
-  rtf: number;
+  rtf?: number;
   language: string;
-  device: string;
+  device?: string;
+  provider?: string;
+  engine?: string;
+  cached?: boolean;
 }
 
 const HINDI_PRESETS = [
+  "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
   "नमस्ते, मैं सरला हूँ। आपकी नई बुद्धिमत्ता साथी।",
   "राधे राधे! मैं आपकी हर तरह से सहायता करने के लिए तैयार हूँ।",
-  "नमस्ते दोस्तों! आज हम कंप्यूटर प्रोग्रामिंग के बारे में कुछ नया सीखेंगे।"
 ];
 
 const ENGLISH_PRESETS = [
   "Hello! I am Sarala, your personal AI assistant. How can I help you today?",
-  "Welcome back. All systems are running smoothly on CPU mode.",
+  "Welcome back. All systems are running smoothly.",
   "I am ready to help you with coding, creative tasks, or any question you have."
 ];
 
@@ -140,15 +150,15 @@ export default function VoiceTestPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800/80 mb-8">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full text-xs font-semibold uppercase tracking-wider mb-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full text-xs font-semibold uppercase tracking-wider mb-2">
             <Mic size={14} />
-            XTTS-v2 Local Voice Workbench
+            Chatterbox Online Voice Studio
           </div>
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Sarala <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">Voice Cloning Test</span>
+            Sarala <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-rose-400">Voice Cloning Studio</span>
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Completely offline, local voice synthesis on CPU using authorized reference voice sample.
+            Online Hindi voice cloning via ResembleAI Chatterbox — powered by Hugging Face GPU cloud.
           </p>
         </div>
 
@@ -164,16 +174,16 @@ export default function VoiceTestPage() {
 
       {/* Engine Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {/* Card 1: Engine Status */}
+        {/* Card 1: Active Provider */}
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3.5 backdrop-blur-sm">
-          <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
+          <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400">
             <Cpu size={22} />
           </div>
           <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">Engine Device</div>
+            <div className="text-xs text-slate-400 uppercase font-semibold">Active Provider</div>
             <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-              <span>{health?.device?.toUpperCase() || "CPU (Auto-detected)"}</span>
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{health?.active_provider?.toUpperCase() || "CHATTERBOX"}</span>
+              <span className="inline-block w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
             </div>
           </div>
         </div>
@@ -184,11 +194,11 @@ export default function VoiceTestPage() {
             <Volume2 size={22} />
           </div>
           <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">Master Reference</div>
+            <div className="text-xs text-slate-400 uppercase font-semibold">Voice Reference</div>
             <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-              {health?.reference_audio_exists ? (
+              {(health?.reference_exists || health?.reference_audio_exists) ? (
                 <span className="text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 size={14} /> Ready (24s Mono)
+                  <CheckCircle2 size={14} /> sarala_reference.wav
                 </span>
               ) : (
                 <span className="text-amber-400 flex items-center gap-1">
@@ -199,20 +209,20 @@ export default function VoiceTestPage() {
           </div>
         </div>
 
-        {/* Card 3: Model State */}
+        {/* Card 3: HF Space Status */}
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3.5 backdrop-blur-sm">
-          <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400">
+          <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
             <Layers size={22} />
           </div>
           <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">XTTS-v2 Weights</div>
+            <div className="text-xs text-slate-400 uppercase font-semibold">HF Space</div>
             <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-              {health?.model_loaded ? (
+              {health?.chatterbox_online ? (
                 <span className="text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 size={14} /> Loaded in Memory
+                  <CheckCircle2 size={14} /> Reachable
                 </span>
               ) : (
-                <span className="text-slate-300">Ready on-demand</span>
+                <span className="text-slate-300">Not checked yet</span>
               )}
             </div>
           </div>
@@ -224,10 +234,10 @@ export default function VoiceTestPage() {
             <Zap size={22} />
           </div>
           <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">Supported Languages</div>
+            <div className="text-xs text-slate-400 uppercase font-semibold">Language</div>
             <div className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
-              <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded text-xs">Hindi (hi)</span>
-              <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-xs">English (en)</span>
+              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded text-xs">Hindi (hi)</span>
+              <span className="px-2 py-0.5 bg-slate-500/20 text-slate-400 rounded text-xs">+ More</span>
             </div>
           </div>
         </div>
@@ -299,17 +309,17 @@ export default function VoiceTestPage() {
               <button
                 onClick={handleSynthesize}
                 disabled={isSynthesizing || !text.trim()}
-                className="w-full py-4 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:via-purple-500 hover:to-pink-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 hover:from-purple-500 hover:via-pink-500 hover:to-rose-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSynthesizing ? (
                   <>
                     <RefreshCw size={20} className="animate-spin" />
-                    <span>Cloning & Synthesizing Voice on CPU...</span>
+                    <span>Synthesizing via Chatterbox Hindi cloud...</span>
                   </>
                 ) : (
                   <>
                     <Mic size={20} />
-                    <span>Generate Sarala Voice</span>
+                    <span>Generate Sarala Voice (Chatterbox Online)</span>
                     <ArrowRight size={18} />
                   </>
                 )}
@@ -419,7 +429,7 @@ export default function VoiceTestPage() {
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
                       <div className="text-[11px] text-slate-400 flex items-center gap-1">
-                        <Zap size={12} /> Inference Latency
+                        <Zap size={12} /> Synthesis Latency
                       </div>
                       <div className="text-base font-bold text-white mt-0.5">
                         {result.latency_sec.toFixed(2)}s
@@ -427,16 +437,16 @@ export default function VoiceTestPage() {
                     </div>
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-                      <div className="text-[11px] text-slate-400">Real-Time Factor (RTF)</div>
-                      <div className="text-base font-bold text-indigo-400 mt-0.5">
-                        {result.rtf.toFixed(2)}x
+                      <div className="text-[11px] text-slate-400">Provider</div>
+                      <div className="text-base font-bold text-purple-400 mt-0.5">
+                        {result.provider || result.engine || "chatterbox_online"}
                       </div>
                     </div>
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-                      <div className="text-[11px] text-slate-400">Hardware Mode</div>
+                      <div className="text-[11px] text-slate-400">Language</div>
                       <div className="text-base font-bold text-emerald-400 mt-0.5">
-                        CPU ({result.device})
+                        {result.language?.toUpperCase() || "HI"}
                       </div>
                     </div>
                   </div>
@@ -455,7 +465,7 @@ export default function VoiceTestPage() {
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-800/80 text-[11px] text-slate-500 text-center">
-              Coqui XTTS-v2 Multi-lingual Engine · 22050Hz Mono PCM Output
+              ResembleAI Chatterbox Hindi · HF Space GPU · Voice Cloning from sarala_reference.wav
             </div>
           </div>
         </div>

@@ -110,6 +110,12 @@ def classify_emotion(text: str) -> tuple:
 import re
 from voice.natural_voice import natural_voice_manager
 from voice.xtts_engine import voice_engine
+try:
+    from voice.voice_service import get_voice_health as _get_voice_health
+    _voice_service_available = True
+except Exception:
+    _voice_service_available = False
+    _get_voice_health = None
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
@@ -178,8 +184,24 @@ class VoiceSynthesizeRequest(BaseModel):
 @app.get("/voice/health")
 async def voice_health():
     """Health check for Sarala voice cloning & natural voice engine."""
+    # Base XTTS status for backwards compatibility
     status = voice_engine.get_status()
     status["natural_voice_ready"] = True
+
+    # Augment with new provider information from voice_service
+    if _voice_service_available and _get_voice_health is not None:
+        try:
+            extended = _get_voice_health()
+            status["active_provider"] = extended.get("active_provider", "unknown")
+            status["voice_enabled"] = extended.get("voice_enabled", True)
+            status["chatterbox_space"] = extended.get("chatterbox_space", "")
+            status["chatterbox_online"] = extended.get("chatterbox_online", False)
+            status["chatterbox_status"] = extended.get("chatterbox_status", "not checked")
+            status["reference_audio"] = extended.get("reference_audio", "")
+            status["reference_exists"] = extended.get("reference_exists", False)
+        except Exception as vh_err:
+            logger.warning(f"Extended voice health check failed: {vh_err}")
+
     return JSONResponse(status)
 
 @app.post("/voice/synthesize")

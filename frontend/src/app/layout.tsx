@@ -241,8 +241,48 @@ export default function RootLayout({
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.className} flex h-screen overflow-hidden mode-${themeMode}`}>
+      <body suppressHydrationWarning className={`${inter.className} flex flex-col md:flex-row h-screen overflow-hidden mode-${themeMode}`}>
         
+        {/* ── Mobile Top Bar (visible on phones only) ── */}
+        <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-white/10 bg-black/60 backdrop-blur-xl shrink-0 z-30">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg">
+              <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
+                <Sparkles size={14} className="text-pink-400" />
+              </div>
+            </div>
+            <span className="text-base font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
+              SARLA AI
+            </span>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsLiveModeOpen(true)}
+              className="p-2 rounded-xl text-pink-400 hover:bg-pink-500/20 transition-all"
+              title="Live Mode"
+            >
+              <Radio size={18} className="animate-pulse" />
+            </button>
+            <button
+              onClick={handleCreateNewChat}
+              className="p-2 rounded-xl text-indigo-400 hover:bg-indigo-500/20 transition-all"
+              title="New Chat"
+            >
+              <Plus size={18} />
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-all"
+              title="Settings & Persona Modes"
+            >
+              <Settings size={18} />
+            </button>
+          </div>
+        </div>
+
         {/* Gemini-Style Sidebar */}
         <aside suppressHydrationWarning className="w-64 border-r border-white/10 flex flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20">
           <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
