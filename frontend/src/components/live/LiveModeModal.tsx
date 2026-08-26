@@ -18,13 +18,17 @@ interface LiveModeModalProps {
   userNickname?: string;
 }
 
-export default function LiveModeModal({
-  isOpen,
+function LiveSessionContent({
   onClose,
   themeMode = "dark",
   userName = "",
   userNickname = "",
-}: LiveModeModalProps) {
+}: {
+  onClose: () => void;
+  themeMode?: string;
+  userName?: string;
+  userNickname?: string;
+}) {
   const [isUploaderOpen, setIsUploaderOpen] = useState<boolean>(false);
   const [isCameraOn, setIsCameraOn] = useState<boolean>(true);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
@@ -54,20 +58,18 @@ export default function LiveModeModal({
   // Handle ESC key to exit video call
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isUploaderOpen) {
+      if (e.key === "Escape" && !isUploaderOpen) {
         handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isUploaderOpen]);
+  }, [isUploaderOpen]);
 
   const handleClose = () => {
     cleanupLiveSession();
     onClose();
   };
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-between p-2 md:p-4 bg-slate-950/95 backdrop-blur-2xl animate-fade-in overflow-hidden select-none max-h-screen">
@@ -90,34 +92,34 @@ export default function LiveModeModal({
       )}
 
       {/* Center Video Call Screen Layout */}
-      <div className="flex-1 w-full min-h-0 flex items-center justify-center z-20 overflow-hidden relative my-1">
+      <div className="flex-1 w-full min-h-0 flex flex-col items-center justify-center z-20 overflow-hidden relative my-1">
         {/* Full Screen 3D Interactive Sarala Avatar */}
-        <LiveAvatar
-          key={reloadKey}
-          avatarState={avatarState}
-          audioAmplitude={audioAmplitude}
-          emotion={emotion}
-          onAvatarClick={toggleListening}
+        <div className="absolute inset-0 z-0">
+          <LiveAvatar
+            key={reloadKey}
+            avatarState={avatarState}
+            audioAmplitude={audioAmplitude}
+            emotion={emotion}
+            onAvatarClick={toggleListening}
+          />
+        </div>
+
+        {/* User Webcam Picture-in-Picture Stream */}
+        <UserCameraPip
+          isCameraOn={isCameraOn}
+          onToggleCamera={() => setIsCameraOn((prev) => !prev)}
         />
 
-        {/* User Web Camera PIP (Top Right Corner) */}
-        <div className="absolute top-3 right-3 z-30">
-          <UserCameraPip
-            isCameraOn={isCameraOn}
-            onToggleCamera={() => setIsCameraOn((prev) => !prev)}
-            userName={userName || "You"}
-            isMicOn={avatarState === "listening"}
+        {/* Real-Time Live Speech Subtitles / Captions (Centered Bottom Overlay) */}
+        <div className="absolute bottom-1 inset-x-0 z-20 px-2 sm:px-4 pointer-events-auto">
+          <LiveTranscript
+            userTranscript={userTranscript}
+            saralaResponse={saralaResponse}
           />
         </div>
       </div>
 
-      {/* Subtitles & Captions Banner */}
-      <LiveTranscript
-        userTranscript={userTranscript}
-        saralaResponse={saralaResponse}
-      />
-
-      {/* Bottom Video Call Floating Controls Bar */}
+      {/* Bottom Live Controls Toolbar */}
       <LiveControls
         avatarState={avatarState}
         isMuted={isMuted}
@@ -130,21 +132,41 @@ export default function LiveModeModal({
         onExit={handleClose}
       />
 
-      {/* Sliding In-Call Chat Side Drawer */}
+      {/* Slide-over In-Call Text Chat Drawer */}
       <InCallChatDrawer
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
         messages={transcriptHistory}
         onSendMessage={sendToSarala}
-        isListening={avatarState === "listening"}
       />
 
-      {/* 3D Avatar Uploader / Customizer Modal */}
+      {/* Avatar 3D VRM Model Customizer Modal */}
       <AvatarUploaderModal
         isOpen={isUploaderOpen}
         onClose={() => setIsUploaderOpen(false)}
-        onAvatarUpdated={() => setReloadKey((prev) => prev + 1)}
+        onAvatarUpdated={() => {
+          setReloadKey((prev) => prev + 1);
+        }}
       />
     </div>
+  );
+}
+
+export default function LiveModeModal({
+  isOpen,
+  onClose,
+  themeMode = "dark",
+  userName = "",
+  userNickname = "",
+}: LiveModeModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <LiveSessionContent
+      onClose={onClose}
+      themeMode={themeMode}
+      userName={userName}
+      userNickname={userNickname}
+    />
   );
 }

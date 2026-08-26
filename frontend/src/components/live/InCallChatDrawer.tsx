@@ -55,7 +55,7 @@ export default function InCallChatDrawer({
   return (
     <aside
       aria-label="In-call chat"
-      className="absolute top-0 right-0 bottom-0 w-80 md:w-96 bg-black/80 backdrop-blur-2xl border-l border-white/15 z-40 flex flex-col justify-between shadow-2xl animate-fade-in"
+      className="absolute top-0 right-0 bottom-0 w-full sm:w-80 md:w-96 max-w-full bg-slate-950/95 backdrop-blur-2xl border-l border-white/15 z-40 flex flex-col justify-between shadow-2xl animate-fade-in"
     >
       {/* Drawer Header */}
       <header className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">

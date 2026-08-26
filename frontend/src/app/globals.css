@@ -215,3 +215,26 @@ body {
   background: radial-gradient(circle at 50% 30%, rgba(30, 27, 75, 0.95), rgba(9, 13, 22, 0.98));
 }
 
+/* Mobile Sidebar Slide Animation */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Hide Next.js dev overlay indicator on mobile view */
+[data-nextjs-dev-indicator],
+[data-nextjs-toast-wrapper],
+nextjs-portal {
+  display: none !important;
+}
+

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Sarla AI — Aapki AI Dost (Full-Stack AI Assistant)",
   "scripts": {
-    "dev:backend": "cd backend && python -m uvicorn web.app:app --host 0.0.0.0 --port 8008 --reload",
+    "dev:backend": "cd backend && venv\\Scripts\\python -m uvicorn web.app:app --host 0.0.0.0 --port 8008 --reload",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"cyan,magenta\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build": "npm --prefix frontend run build",

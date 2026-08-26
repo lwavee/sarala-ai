@@ -50,8 +50,8 @@ export default function LiveTranscript({
   const hasContent = Boolean(cleanUser || cleanSarala);
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 mb-2 z-20">
-      <div className="glass rounded-2xl p-3 md:p-4 border border-white/15 bg-black/60 backdrop-blur-xl shadow-2xl relative transition-all animate-fade-in max-h-24 md:max-h-32 overflow-y-auto custom-scrollbar">
+    <div className="w-full max-w-xl mx-auto px-2 sm:px-4 mb-1 sm:mb-2 z-20">
+      <div className="glass rounded-2xl p-2.5 sm:p-3.5 border border-white/15 bg-black/75 backdrop-blur-xl shadow-2xl relative transition-all animate-fade-in max-h-20 sm:max-h-28 overflow-y-auto custom-scrollbar">
         <button
           onClick={() => setShowSubtitles(false)}
           className="absolute top-2 right-2 p-1 text-slate-500 hover:text-slate-300 rounded-full cursor-pointer"
@@ -61,9 +61,9 @@ export default function LiveTranscript({
         </button>
 
         {!hasContent ? (
-          <p className="text-center text-xs text-slate-400 italic flex items-center justify-center gap-2">
-            <MessageSquare size={14} className="text-pink-400" />
-            Speak into the microphone or type below to talk with Sarala...
+          <p className="text-center text-[11px] sm:text-xs text-slate-400 italic flex items-center justify-center gap-1.5 px-4">
+            <MessageSquare size={13} className="text-pink-400 shrink-0" />
+            <span>Speak or type below to talk with Sarala...</span>
           </p>
         ) : (
           <div className="space-y-2 text-sm leading-relaxed">

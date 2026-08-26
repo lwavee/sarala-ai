@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { 
   Send, Mic, MicOff, Sparkles, Heart, Shield, BookOpen, Bot, 
-  Volume2, VolumeX, Radio, Video
+  Volume2, VolumeX, Radio, Video, Menu
 } from "lucide-react";
 
 interface Message {
@@ -321,7 +321,7 @@ export default function ChatbotPage() {
   ];
 
   return (
-    <div className={`flex flex-col h-full relative overflow-hidden p-4 md:p-8 ${themeMode === "love" ? "love-wave-bg" : "bg-transparent"}`}>
+    <div className={`flex flex-col h-full relative overflow-hidden p-2 sm:p-4 md:p-8 ${themeMode === "love" ? "love-wave-bg" : "bg-transparent"}`}>
       
       {/* Love Theme Special Background Visuals */}
       {themeMode === "love" && (
@@ -358,58 +358,68 @@ export default function ChatbotPage() {
       )}
 
       {/* Header */}
-      <header className="glass rounded-2xl p-4 flex items-center justify-between mb-6 animate-fade-in z-10 border border-white/10 relative">
-        <div className="flex items-center gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-500 via-indigo-500 to-cyan-400 p-0.5 shadow-lg flex items-center justify-center animate-pulse-glow">
+      <header className="glass rounded-2xl p-3 sm:p-4 flex items-center justify-between mb-3 sm:mb-6 animate-fade-in z-10 border border-white/10 relative">
+        <div className="flex items-center gap-2.5 sm:gap-4">
+          {/* Mobile Hamburger Drawer Trigger */}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_mobile_sidebar"))}
+            className="md:hidden p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer shrink-0"
+            title="Open Menu"
+            aria-label="Open Menu"
+          >
+            <Menu size={18} />
+          </button>
+
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-pink-500 via-indigo-500 to-cyan-400 p-0.5 shadow-lg flex items-center justify-center animate-pulse-glow shrink-0">
             <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <Bot size={22} className="text-white" />
+              <Bot size={18} className="text-white sm:hidden" />
+              <Bot size={22} className="text-white hidden sm:block" />
             </div>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
+            <h2 className="text-base sm:text-xl font-bold text-white tracking-wide flex items-center gap-2">
               Sarla AI
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             </h2>
-            <p className="text-xs text-slate-400 flex items-center gap-1.5">
-              <span>Aapki Intelligent AI Assistant</span>
+            <p className="text-[11px] sm:text-xs text-slate-400 flex items-center gap-1.5 truncate max-w-[170px] sm:max-w-none">
+              <span className="hidden xs:inline">Aapki AI Dost</span>
               {isVoiceLoading ? (
                 <span className="text-indigo-400 font-semibold flex items-center gap-1 animate-pulse">
-                  <Radio size={12} className="animate-spin" /> Cloned Voice Generating...
+                  <Radio size={12} className="animate-spin" /> Voice Generating...
                 </span>
               ) : isSpeaking ? (
                 <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
-                  <Radio size={12} className="animate-pulse" /> Sarala Voice Speaking...
+                  <Radio size={12} className="animate-pulse" /> Speaking...
                 </span>
               ) : null}
             </p>
           </div>
         </div>
 
-        {/* Action Controls: Voice Toggle, Live Mode & Active Mode Badge */}
-        <div className="flex items-center gap-3">
+        {/* Action Controls: Voice Toggle & Live Mode */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button
             onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_live"))}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-pink-500/20 to-indigo-500/20 border border-pink-500/50 text-pink-300 hover:text-white hover:bg-pink-500/30 text-xs font-semibold transition-all shadow-md cursor-pointer animate-pulse-glow"
+            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-full bg-gradient-to-r from-pink-500/20 to-indigo-500/20 border border-pink-500/50 text-pink-300 hover:text-white hover:bg-pink-500/30 text-xs font-semibold transition-all shadow-md cursor-pointer animate-pulse-glow"
             title="Start Live Video Chat with Sarala AI Avatar"
           >
-            <Video size={16} className="text-pink-400" />
-            <span className="font-bold">Live Mode</span>
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+            <Video size={14} className="text-pink-400" />
+            <span className="font-bold text-[11px] sm:text-xs">Live Mode</span>
+            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-red-500 animate-ping"></span>
           </button>
 
           <button
             onClick={toggleVoiceMode}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
               isVoiceEnabled 
                 ? "bg-pink-500/20 border-pink-500/50 text-pink-300 hover:bg-pink-500/30" 
                 : "bg-slate-800/60 border-white/10 text-slate-400 hover:text-white"
             }`}
             title={isVoiceEnabled ? "Mute Sarla's Voice Response" : "Enable Sarla's Cloned Voice Response"}
           >
-            {isVoiceEnabled ? <Volume2 size={16} className={isSpeaking ? "animate-pulse text-pink-400" : isVoiceLoading ? "animate-spin text-indigo-400" : ""} /> : <VolumeX size={16} />}
-            <span className="hidden sm:inline">{isVoiceEnabled ? "Cloned Voice ON" : "Voice OFF"}</span>
+            {isVoiceEnabled ? <Volume2 size={14} className={isSpeaking ? "animate-pulse text-pink-400" : isVoiceLoading ? "animate-spin text-indigo-400" : ""} /> : <VolumeX size={14} />}
+            <span className="hidden md:inline">{isVoiceEnabled ? "Cloned Voice ON" : "Voice OFF"}</span>
           </button>
-
         </div>
       </header>
 

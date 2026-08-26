@@ -140,20 +140,13 @@ export function useLiveSession({
     setAvatarState((prev) => (prev === "speaking" ? "idle" : prev));
   }, []);
 
-  // Simulate audio amplitude pulsation during speech for natural visual response
+  // Audio amplitude state during speech
   const startAudioAmplitudeSimulation = useCallback(() => {
-    let phase = 0;
-    const animate = () => {
-      if (!isComponentMounted.current) return;
-      phase += 0.16;
-      const baseWave = Math.sin(phase) * 0.4 + 0.5;
-      const randomJitter = (Math.random() - 0.5) * 0.3;
-      const val = Math.max(0.12, Math.min(1.0, baseWave + randomJitter));
-      setAudioAmplitude(val);
-      animFrameRef.current = requestAnimationFrame(animate);
-    };
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    animFrameRef.current = requestAnimationFrame(animate);
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    setAudioAmplitude(0.85);
   }, []);
 
   // Browser speech synthesis fallback
@@ -230,18 +223,31 @@ export function useLiveSession({
 
   // Play Natural Neural / Cloned Audio Stream
   const playNaturalAudio = useCallback(
-    async (audioUrl: string, fallbackText: string) => {
+    async (audioUrl: string, _fallbackText: string) => {
       if (isMuted) {
         setAvatarState("idle");
         return;
       }
 
-      stopSpeaking();
+      // Stop previous audio playback cleanly
+      if (audioPlayerRef.current) {
+        try {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current.currentTime = 0;
+        } catch (_) {}
+        audioPlayerRef.current = null;
+      }
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
 
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
         const fullUrl = audioUrl.startsWith("http") ? audioUrl : `${apiUrl}${audioUrl}`;
-        const audio = new Audio(fullUrl);
+        const audio = new Audio();
+        audio.crossOrigin = "anonymous";
+        audio.preload = "auto";
+        audio.src = fullUrl;
         audioPlayerRef.current = audio;
 
         audio.onplay = () => {
@@ -257,20 +263,27 @@ export function useLiveSession({
           setAvatarState("idle");
         };
 
-        audio.onerror = () => {
-          console.warn("Natural audio stream playback error, falling back to browser TTS.");
+        audio.onerror = (e) => {
+          console.warn("Audio stream playback notice:", fullUrl, e);
           if (isComponentMounted.current) {
-            speakText(fallbackText);
+            setAvatarState("idle");
           }
         };
 
-        await audio.play();
-      } catch (playErr) {
-        console.warn("Audio autoplay blocked or failed, using fallback:", playErr);
-        speakText(fallbackText);
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          await playPromise;
+        }
+      } catch (playErr: any) {
+        if (playErr?.name !== "AbortError") {
+          console.warn("Audio playback error:", playErr);
+        }
+        if (isComponentMounted.current) {
+          setAvatarState("idle");
+        }
       }
     },
-    [isMuted, stopSpeaking, startAudioAmplitudeSimulation, speakText]
+    [isMuted, startAudioAmplitudeSimulation]
   );
 
   const silenceTimerRef = useRef<any>(null);

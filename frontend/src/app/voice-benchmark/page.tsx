@@ -23,7 +23,8 @@ import {
   Info,
   ChevronRight,
   Flame,
-  Check
+  Check,
+  Menu
 } from "lucide-react";
 
 interface EngineBenchmark {
@@ -186,10 +187,18 @@ export default function VoiceBenchmarkPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans selection:bg-pink-500 selection:text-white">
       {/* Header */}
-      <header className="max-w-7xl mx-auto mb-8">
+      <header className="max-w-7xl mx-auto mb-6 sm:mb-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
           <div>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-2 mb-2">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_mobile_sidebar"))}
+                className="md:hidden p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer mr-1"
+                title="Open Menu"
+                aria-label="Open Navigation Menu"
+              >
+                <Menu size={16} />
+              </button>
               <span className="px-3 py-1 text-xs font-semibold uppercase tracking-wider rounded-full bg-pink-500/20 text-pink-400 border border-pink-500/30 flex items-center gap-1.5">
                 <Flame className="w-3.5 h-3.5 text-pink-400" /> Isolated Voice Benchmark
               </span>

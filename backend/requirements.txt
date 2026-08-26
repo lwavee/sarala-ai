@@ -15,4 +15,7 @@ soundfile
 scipy
 imageio-ffmpeg
 edge-tts
+# Online Chatterbox Hindi TTS (HF Space client — lightweight, no local model)
 gradio_client
+# Audio format conversion for reference audio preprocessing
+pydub

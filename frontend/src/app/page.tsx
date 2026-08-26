@@ -1,11 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Bot, Mic, Sparkles, Video } from "lucide-react";
+import { ArrowRight, Bot, Mic, Sparkles, Video, Menu } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in">
+    <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in relative">
+      {/* Top Mobile Menu Trigger */}
+      <div className="absolute top-4 left-4 md:hidden z-20">
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_mobile_sidebar"))}
+          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer flex items-center gap-2 text-xs font-semibold"
+          title="Open Menu"
+          aria-label="Open Navigation Menu"
+        >
+          <Menu size={18} />
+          <span>Menu</span>
+        </button>
+      </div>
+
       <div className="text-center max-w-2xl">
         <div className="inline-flex items-center justify-center p-4 bg-indigo-500/20 rounded-2xl mb-8 animate-pulse-glow">
           <Bot size={64} className="text-indigo-400" />

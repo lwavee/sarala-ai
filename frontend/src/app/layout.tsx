@@ -7,7 +7,7 @@ import Link from "next/link";
 import { 
   MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart, 
   Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User,
-  Video, Radio, Mic
+  Video, Radio, Mic, Menu, Volume2
 } from "lucide-react";
 import LiveModeModal from "@/components/live/LiveModeModal";
 
@@ -28,6 +28,7 @@ export default function RootLayout({
   const [themeMode, setThemeMode] = useState<string>("dark");
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isLiveModeOpen, setIsLiveModeOpen] = useState<boolean>(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [userSession, setUserSession] = useState<UserSession | null>(null);
   
   // Auth Modal State
@@ -55,7 +56,9 @@ export default function RootLayout({
     document.body.className = `${inter.className} flex h-screen overflow-hidden mode-${savedMode}`;
 
     const handleOpenLive = () => setIsLiveModeOpen(true);
+    const handleOpenMobileSidebar = () => setIsMobileSidebarOpen(true);
     window.addEventListener("sarla_open_live", handleOpenLive);
+    window.addEventListener("sarla_open_mobile_sidebar", handleOpenMobileSidebar);
 
     // Load User Session
     const defaultUserSession = {
@@ -93,6 +96,7 @@ export default function RootLayout({
 
     return () => {
       window.removeEventListener("sarla_open_live", handleOpenLive);
+      window.removeEventListener("sarla_open_mobile_sidebar", handleOpenMobileSidebar);
     };
   }, []);
 
@@ -396,6 +400,166 @@ export default function RootLayout({
             </div>
           </div>
         </aside>
+
+        {/* Mobile Slide-Over Sidebar Drawer Popup */}
+        {isMobileSidebarOpen && (
+          <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
+            {/* Backdrop Blur Overlay */}
+            <div
+              className="fixed inset-0 bg-black/80 backdrop-blur-md transition-opacity"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            />
+
+            {/* Slide Drawer Content from Left */}
+            <aside
+              className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] bg-slate-950/95 backdrop-blur-2xl border-r border-white/15 flex flex-col justify-between shadow-2xl z-50 animate-slide-in-left select-none"
+            >
+              <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
+                {/* Brand Logo & Close Button */}
+                <div className="flex items-center justify-between px-1 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg animate-pulse-glow">
+                      <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                        <Sparkles size={18} className="text-pink-400" />
+                      </div>
+                    </div>
+                    <h1 className="text-xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
+                      SARLA AI
+                    </h1>
+                  </div>
+                  <button
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                    title="Close Menu"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* New Chat Button */}
+                <button
+                  onClick={() => {
+                    handleCreateNewChat();
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium mb-6 transition-all shadow-lg shadow-indigo-500/25 cursor-pointer"
+                >
+                  <Plus size={20} />
+                  <span>New chat</span>
+                </button>
+
+                {/* Nav Menu */}
+                <nav className="space-y-1 mb-6">
+                  <button
+                    onClick={() => {
+                      setIsLiveModeOpen(true);
+                      setIsMobileSidebarOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Radio size={18} className="text-pink-400 animate-pulse" />
+                      <span>Live Mode</span>
+                    </div>
+                    <span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                      LIVE
+                    </span>
+                  </button>
+
+                  <Link
+                    href="/chatbot"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+                  >
+                    <MessageSquare size={18} className="text-indigo-400" />
+                    <span>Chat</span>
+                  </Link>
+
+                  <Link
+                    href="/voice-test"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+                  >
+                    <Volume2 size={18} className="text-violet-400" />
+                    <span>Voice Studio</span>
+                  </Link>
+
+                  <Link
+                    href="/voice-benchmark"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+                  >
+                    <Mic size={18} className="text-pink-400" />
+                    <span>Voice Benchmark</span>
+                  </Link>
+                </nav>
+
+                {/* Recents Chat History List */}
+                <div className="pt-4 border-t border-white/10">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">Recents</p>
+                  <div className="space-y-1">
+                    {chatThreads.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => {
+                          setActiveThreadId(t.id);
+                          window.dispatchEvent(new CustomEvent("sarla_switch_thread", { detail: { threadId: t.id } }));
+                          setIsMobileSidebarOpen(false);
+                        }}
+                        className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                          activeThreadId === t.id
+                            ? "bg-white/15 text-white font-semibold"
+                            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        }`}
+                      >
+                        <MessageSquare size={14} className="shrink-0 text-slate-400" />
+                        <span className="truncate">{t.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* User Profile Footer */}
+              <div className="p-4 border-t border-white/10 flex items-center justify-between bg-black/40">
+                <div className="flex items-center gap-3 truncate">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm shadow-md shrink-0">
+                    {userInitials}
+                  </div>
+                  <div className="truncate max-w-[110px]">
+                    <p className="text-sm font-semibold text-white leading-tight truncate">{userDisplayName}</p>
+                    <p className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
+                      <UserCheck size={10} /> {userSession?.is_naveen ? "Naveen (Owner)" : "Verified"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      setIsSettingsOpen(true);
+                      setIsMobileSidebarOpen(false);
+                    }}
+                    className="p-2 rounded-xl hover:bg-white/10 transition-all text-slate-400 hover:text-white"
+                    title="Settings & Persona Modes"
+                  >
+                    <Settings size={18} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleLogout();
+                      setIsMobileSidebarOpen(false);
+                    }}
+                    className="p-2 rounded-xl hover:bg-red-500/20 transition-all text-slate-400 hover:text-red-400"
+                    title="Logout"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </div>
+              </div>
+            </aside>
+          </div>
+        )}
 
         {/* Main Content Viewport */}
         <main suppressHydrationWarning className="flex-1 flex flex-col h-full relative overflow-hidden">

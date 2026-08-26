@@ -1,0 +1,22 @@
+{
+  "voice_name": "Sarala Cloned Chatterbox Voice",
+  "persona": "Sarala AI - 100% Free Open-Source Cloned Hindi Voice from backend/voice/output",
+  "language": "hi",
+  "provider": "chatterbox",
+  "engine": "chatterbox_multilingual",
+  "inference_mode": "remote_gpu",
+  "reference_audio": "backend/voice/output/sarala_hi_5342896e81.wav",
+  "generation_settings": {
+    "exaggeration": 0.25,
+    "temperature": 0.45,
+    "seed": 0,
+    "cfg_weight": 0.5
+  },
+  "audio_specs": {
+    "output_sample_rate": 24000,
+    "channels": 1,
+    "format": "wav"
+  },
+  "approved_reference_sample": "backend/voice/output/sarala_hi_5342896e81.wav",
+  "notes": "Voice cloning conditioned on master Sarala voice sample from backend/voice/output."
+}

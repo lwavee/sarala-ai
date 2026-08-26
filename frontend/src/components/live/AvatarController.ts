@@ -180,14 +180,14 @@ export class AvatarController {
       case "HIGH":
         this.renderer.setPixelRatio(Math.min(dpr, 2.0));
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
         break;
       case "AUTO":
       default:
         const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
         this.renderer.setPixelRatio(Math.min(dpr, isMobile ? 1.25 : 2.0));
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
         break;
     }
   }
@@ -347,7 +347,7 @@ export class AvatarController {
     const animate = () => {
       this.animFrameId = requestAnimationFrame(animate);
 
-      const delta = this.clock.getDelta();
+      const delta = Math.min(this.clock.getDelta(), 0.05);
       const stateStr = getAvatarState();
       const simulatedAmp = getAudioAmplitude();
       const emotionType = getEmotion();
