@@ -23,29 +23,21 @@ import {
 } from "lucide-react";
 
 interface VoiceHealthStatus {
-<<<<<<< HEAD
-  status: string;
-  model_loaded: boolean;
-  device: string;
+  status?: string;
+  provider?: string;
+  voice_enabled?: boolean;
+  language?: string;
+  initialized?: boolean;
+  device?: string;
+  space?: string;
+  model_loaded?: boolean;
   reference_audio_exists?: boolean;
   reference_audio_path?: string;
   reference_exists?: boolean;
   reference_audio?: string;
   supported_languages?: string[];
-=======
-  provider?: string;
-  voice_enabled?: boolean;
-  language?: string;
-  initialized?: boolean;
-  reference_audio_exists?: boolean;
-  reference_audio_path?: string;
-  space?: string;
-  device?: string;
-  model_loaded?: boolean;
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
   output_dir?: string;
   active_provider?: string;
-  voice_enabled?: boolean;
   chatterbox_space?: string;
   chatterbox_online?: boolean;
   chatterbox_status?: string;
@@ -62,11 +54,10 @@ interface VoiceHealthStatus {
 interface SynthesisResult {
   filename: string;
   audio_url: string;
-<<<<<<< HEAD
-  duration_sec: number;
-  latency_sec: number;
+  duration_sec?: number;
+  latency_sec?: number;
   rtf?: number;
-  language: string;
+  language?: string;
   device?: string;
   provider?: string;
   engine?: string;
@@ -77,20 +68,9 @@ const HINDI_PRESETS = [
   "नमस्ते, मैं सरला हूँ। आज मैं आपके साथ कुछ नया सीखने वाली हूँ। अगर आपको कोई सवाल है, तो आप मुझसे कभी भी पूछ सकते हैं।",
   "नमस्ते, मैं सरला हूँ। आपकी नई बुद्धिमत्ता साथी।",
   "राधे राधे! मैं आपकी हर तरह से सहायता करने के लिए तैयार हूँ।",
-=======
-  duration_sec?: number;
-  latency_sec?: number;
-  engine?: string;
-  provider?: string;
-  language?: string;
-}
-
-const HINDI_PRESETS = [
   "नमस्ते, मैं सरला हूँ। आप कैसे हैं?",
   "अगर आपको किसी भी चीज़ में मदद चाहिए, तो आप मुझसे पूछ सकते हैं।",
   "आज हम कुछ नया सीखेंगे और इसे बहुत आसान तरीके से समझेंगे।",
-  "आप जो भी सवाल पूछना चाहते हैं, बेझिझक पूछ सकते हैं।",
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
 ];
 
 const ENGLISH_PRESETS = [
@@ -136,7 +116,7 @@ export default function VoiceTestPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
 
-  const activeProvider = health?.provider || "chatterbox_online";
+  const activeProvider = health?.active_provider || health?.provider || "chatterbox_online";
   const providerInfo = PROVIDER_LABELS[activeProvider] || PROVIDER_LABELS["chatterbox_online"];
 
   const fetchHealth = async () => {
@@ -204,8 +184,8 @@ export default function VoiceTestPage() {
     }
   };
 
-  const isChatterbox = activeProvider === "chatterbox_online";
-  const isOnline = activeProvider === "chatterbox_online" || activeProvider === "neural";
+  const isChatterbox = activeProvider === "chatterbox_online" || activeProvider === "chatterbox";
+  const isOnline = isChatterbox || activeProvider === "neural";
 
   return (
     <div className="flex-1 flex flex-col p-4 sm:p-6 md:p-10 max-w-6xl mx-auto w-full text-slate-100">
@@ -257,16 +237,6 @@ export default function VoiceTestPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* Card 1: Active Provider */}
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3.5 backdrop-blur-sm">
-<<<<<<< HEAD
-          <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400">
-            <Cpu size={22} />
-          </div>
-          <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">Active Provider</div>
-            <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-              <span>{health?.active_provider?.toUpperCase() || "CHATTERBOX"}</span>
-              <span className="inline-block w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-=======
           <div className="p-3 bg-violet-500/10 rounded-xl text-violet-400">
             {isOnline ? <Cloud size={22} /> : <Cpu size={22} />}
           </div>
@@ -275,7 +245,6 @@ export default function VoiceTestPage() {
             <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
               <span>{providerInfo.label}</span>
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
             </div>
           </div>
         </div>
@@ -291,7 +260,7 @@ export default function VoiceTestPage() {
             </div>
             <div className="text-sm font-bold text-white mt-0.5 truncate max-w-[140px]">
               {isChatterbox
-                ? health?.space?.split("/")[1] || "Chatterbox-HI"
+                ? health?.space?.split("/")[1] || health?.chatterbox_space?.split("/")[1] || "Chatterbox-HI"
                 : health?.device || "Online"}
             </div>
           </div>
@@ -307,15 +276,11 @@ export default function VoiceTestPage() {
             <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
               {(health?.reference_exists || health?.reference_audio_exists) ? (
                 <span className="text-emerald-400 flex items-center gap-1">
-<<<<<<< HEAD
-                  <CheckCircle2 size={14} /> sarala_reference.wav
-=======
-                  <CheckCircle2 size={14} /> Ready
+                  <CheckCircle2 size={14} /> Ready (sarala_reference.wav)
                 </span>
               ) : health?.provider === "unreachable" ? (
                 <span className="text-red-400 flex items-center gap-1">
                   <WifiOff size={14} /> Offline
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
                 </span>
               ) : (
                 <span className="text-amber-400 flex items-center gap-1">
@@ -326,45 +291,16 @@ export default function VoiceTestPage() {
           </div>
         </div>
 
-<<<<<<< HEAD
-        {/* Card 3: HF Space Status */}
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3.5 backdrop-blur-sm">
-          <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
-            <Layers size={22} />
-          </div>
-          <div>
-            <div className="text-xs text-slate-400 uppercase font-semibold">HF Space</div>
-            <div className="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-              {health?.chatterbox_online ? (
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 size={14} /> Reachable
-                </span>
-              ) : (
-                <span className="text-slate-300">Not checked yet</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Languages */}
-=======
         {/* Card 4: Connection Status */}
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3.5 backdrop-blur-sm">
           <div className="p-3 bg-cyan-500/10 rounded-xl text-cyan-400">
             <Zap size={22} />
           </div>
           <div>
-<<<<<<< HEAD
-            <div className="text-xs text-slate-400 uppercase font-semibold">Language</div>
-            <div className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
-              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded text-xs">Hindi (hi)</span>
-              <span className="px-2 py-0.5 bg-slate-500/20 text-slate-400 rounded text-xs">+ More</span>
-=======
             <div className="text-xs text-slate-400 uppercase font-semibold">Space Status</div>
             <div className="text-sm font-bold text-white mt-0.5">
               {isChatterbox ? (
-                health?.initialized ? (
+                health?.initialized || health?.chatterbox_online ? (
                   <span className="text-emerald-400 flex items-center gap-1">
                     <CheckCircle2 size={14} /> Connected
                   </span>
@@ -376,7 +312,6 @@ export default function VoiceTestPage() {
                   {health?.device || "Online"}
                 </span>
               )}
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
             </div>
           </div>
         </div>
@@ -474,29 +409,21 @@ export default function VoiceTestPage() {
                 id="generate-voice-btn"
                 onClick={handleSynthesize}
                 disabled={isSynthesizing || !text.trim()}
-<<<<<<< HEAD
-                className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 hover:from-purple-500 hover:via-pink-500 hover:to-rose-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-=======
                 className="w-full py-4 px-6 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 hover:from-violet-500 hover:via-fuchsia-500 hover:to-pink-500 text-white font-bold rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] shadow-lg shadow-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
               >
                 {isSynthesizing ? (
                   <>
                     <RefreshCw size={20} className="animate-spin" />
-<<<<<<< HEAD
-                    <span>Synthesizing via Chatterbox Hindi cloud...</span>
-=======
                     <span>
                       {isChatterbox
                         ? "Sending to Chatterbox Online…"
                         : "Synthesizing Voice…"}
                     </span>
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
                   </>
                 ) : (
                   <>
                     <Mic size={20} />
-                    <span>Generate Sarala Voice (Chatterbox Online)</span>
+                    <span>Generate Sarala Voice ({isChatterbox ? "Chatterbox Online" : activeProvider})</span>
                     <ArrowRight size={18} />
                   </>
                 )}
@@ -610,11 +537,7 @@ export default function VoiceTestPage() {
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
                       <div className="text-[11px] text-slate-400 flex items-center gap-1">
-<<<<<<< HEAD
-                        <Zap size={12} /> Synthesis Latency
-=======
                         <Zap size={12} /> Latency
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
                       </div>
                       <div className="text-base font-bold text-white mt-0.5">
                         {result.latency_sec ? `${result.latency_sec.toFixed(2)}s` : "–"}
@@ -623,24 +546,15 @@ export default function VoiceTestPage() {
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
                       <div className="text-[11px] text-slate-400">Provider</div>
-<<<<<<< HEAD
-                      <div className="text-base font-bold text-purple-400 mt-0.5">
-                        {result.provider || result.engine || "chatterbox_online"}
-=======
                       <div className="text-sm font-bold text-violet-400 mt-0.5">
                         {result.provider || result.engine || "–"}
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
                       </div>
                     </div>
 
                     <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
                       <div className="text-[11px] text-slate-400">Language</div>
                       <div className="text-base font-bold text-emerald-400 mt-0.5">
-<<<<<<< HEAD
-                        {result.language?.toUpperCase() || "HI"}
-=======
-                        {result.language === "hi" ? "🇮🇳 Hindi" : "🇬🇧 English"}
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
+                        {result.language === "hi" ? "🇮🇳 Hindi" : result.language === "en" ? "🇬🇧 English" : result.language?.toUpperCase() || "HI"}
                       </div>
                     </div>
                   </div>
@@ -659,11 +573,8 @@ export default function VoiceTestPage() {
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-800/80 text-[11px] text-slate-500 text-center">
-<<<<<<< HEAD
-              ResembleAI Chatterbox Hindi · HF Space GPU · Voice Cloning from sarala_reference.wav
-=======
               {isChatterbox
-                ? `ResembleAI Chatterbox-Multilingual-TTS-hi · WAV Output · ${health?.space || "HF Space"}`
+                ? `ResembleAI Chatterbox-Multilingual-TTS-hi · WAV Output · ${health?.space || health?.chatterbox_space || "HF Space"}`
                 : activeProvider === "neural"
                 ? "Edge-TTS Neural hi-IN-SwaraNeural · MP3 Output"
                 : "Coqui XTTS-v2 Multi-lingual Engine · WAV Output"}
@@ -722,7 +633,6 @@ export default function VoiceTestPage() {
                 <div className="text-[11px] font-medium text-slate-300 mb-1.5 line-clamp-1">4. "आप जो भी सवाल पूछना चाहते हैं, बेझिझक..."</div>
                 <audio controls className="w-full h-7 rounded accent-violet-500" src={`${apiUrl}/voice/audio/sarala_hi_6a3da7fc22.wav`} preload="metadata" />
               </div>
->>>>>>> d65a12b (feat: enhance mobile UI layout with slide-out left sidebar drawer and Chatterbox voice cloning integration)
             </div>
           </div>
         </div>
