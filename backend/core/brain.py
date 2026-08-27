@@ -5,6 +5,7 @@ from core.agent import Agent
 from core.llm import LLMEngine
 from core.knowledge import knowledge_engine
 from core.learning import LearningEngine
+from core.admin_service import admin_service
 
 # Mapping of memory keys to human-friendly Hinglish response labels
 KEY_DISPLAY = {
@@ -104,8 +105,12 @@ class Brain:
             if action in ["teach", "feedback_pos", "feedback_neg"]:
                 if action == "teach":
                     cat = "tech" if domain or any(w in text for w in ["python", "js", "web", "tech"]) else "personal"
-                    result = self.learning.learn(intent.get("fact"), category=cat, topic=domain)
-                    reply = result["message"]
+                    fact = intent.get("fact")
+                    if fact is not None:
+                        result = self.learning.learn(fact, category=cat, topic=domain)
+                        reply = result["message"]
+                    else:
+                        reply = "Mujhe samajh nahi aaya ki kya seekhna hai."
                 elif action == "feedback_pos":
                     self.learning.update_feedback(text, is_positive=True)
                     reply = "Shukriya! Maine seekh liya ki main sahi thi 😊"
@@ -217,14 +222,46 @@ class Brain:
         """Build rich context from memory + RAG and pass to LLM."""
         self._log("user", user_input)
 
-        # ── RAG: Search for technical knowledge if domain is detected ────────
+        # ── Conversational Fact Extraction ──
+        # Simple heuristic to extract facts like "Avee is your developer" or "You are an agentic ai"
+        import re
+        fact_match = re.search(r'(?i)\b(my|your|he is|she is|they are|i am|you are|is)\b\s+([^.!?\n]+)', user_input)
+        if fact_match and "what" not in user_input.lower() and "who" not in user_input.lower():
+            extracted_fact = user_input.strip()
+            # Save it permanently via admin_service to training_items
+            try:
+                admin_service.save_training_item({
+                    "topic": "Conversational Fact",
+                    "category": "personal",
+                    "prompt_pattern": extracted_fact,
+                    "target_response": f"I learned this from you: {extracted_fact}",
+                    "source": "chat_memory"
+                })
+            except Exception as e:
+                print(f"Failed to auto-save fact: {e}")
+
+        # ── RAG: Search for technical knowledge and Supabase chunks ────────
         rag_context = ""
         used_rag = False
+        
+        # 1. Search local knowledge engine
         if domain:
             results = self.knowledge.search(user_input)
             if results:
-                rag_context = "\nTechnical Reference Knowledge:\n" + "\n---\n".join(results)
+                rag_context += "\nTechnical Reference Knowledge:\n" + "\n---\n".join(results)
                 used_rag = True
+                
+        # 2. Search Supabase (Documents & Training Facts)
+        try:
+            supabase_results = admin_service.search_knowledge_chunks(user_input, limit=4)
+            if supabase_results:
+                rag_context += "\nSupabase Memory & Documents:\n"
+                for res in supabase_results:
+                    title_prefix = f"[{res['title']}] " if res.get('title') else ""
+                    rag_context += f"- {title_prefix}{res['content']}\n"
+                used_rag = True
+        except Exception as e:
+            print(f"Error in RAG retrieval: {e}")
 
         # ── Learning: Retrieve user-taught facts ──────────────
         learned_facts = self.learning.retrieve(user_input)

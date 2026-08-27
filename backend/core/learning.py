@@ -1,11 +1,15 @@
 import json
 import os
 import datetime
+import logging
+from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger("sarala.learning")
 
 class LearningEngine:
     """
-    Auto-Learning System for Sarala AI.
-    Handles storage, validation (safety/logic), and retrieval of learned facts.
+    Auto-Learning & Permanent Training System for Sarala AI.
+    Handles storage, validation, permanent Supabase sync, and retrieval of learned facts.
     """
     
     def __init__(self, learning_dir="learning"):
@@ -23,32 +27,36 @@ class LearningEngine:
         for key, filename in self.files.items():
             path = os.path.join(self.learning_dir, filename)
             if not os.path.exists(path):
-                # Ensure directory exists
                 os.makedirs(self.learning_dir, exist_ok=True)
-                with open(path, "w") as f:
-                    json.dump([], f)
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump([], f)
+                except Exception:
+                    pass
                 continue
                 
             try:
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                     if content:
                         self.data[key] = json.loads(content)
             except Exception as e:
-                print(f"Error loading {filename}: {e}")
+                logger.error(f"Error loading {filename}: {e}")
 
     def save(self, category):
         """Save specific category back to JSON."""
-        path = os.path.join(self.learning_dir, self.files[category])
-        with open(path, "w") as f:
-            json.dump(self.data[category], f, indent=4)
+        try:
+            path = os.path.join(self.learning_dir, self.files[category])
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.data[category], f, indent=4)
+        except Exception as e:
+            logger.error(f"Error saving {category} knowledge: {e}")
 
-    def learn(self, fact, category="tech", source="user", topic=None):
+    def learn(self, fact: str, category: str = "tech", source: str = "user", topic: Optional[str] = None) -> Dict[str, str]:
         """
         Trigger a learning event. 
-        Includes validation layer before storage.
+        Validates the fact and permanently saves it to Supabase and local cache.
         """
-        # 1. Validation Logic
         if not self._is_logical(fact):
             return {"status": "error", "message": "Info logical nahi lag rahi 🧐"}
         
@@ -58,54 +66,80 @@ class LearningEngine:
         if self._is_harmful(fact):
             return {"status": "error", "message": "Main aisi cheezein nahi seekhti 🙅‍♀️"}
 
-        # 2. Smart Save Format
+        clean_topic = topic or category.capitalize()
         entry = {
-            "topic": topic or category,
+            "topic": clean_topic,
             "fact": fact,
             "source": source,
-            "confidence": 0.8,
+            "confidence": 0.9,
             "timestamp": datetime.datetime.now().isoformat()
         }
 
-        # 3. Store
+        # 1. Store in local JSON cache
         self.data[category].append(entry)
         self.save(category)
-        return {"status": "success", "message": "Theek hai, maine yaad kar liya! ✅"}
 
-    def _is_logical(self, fact):
-        """Basic logical check."""
+        # 2. Persist permanently to Supabase via admin_service
+        try:
+            from core.admin_service import admin_service
+            admin_service.save_training_item({
+                "topic": clean_topic,
+                "category": category,
+                "prompt_pattern": f"Teach me about {clean_topic} / {fact[:40]}",
+                "target_response": fact,
+                "confidence": 0.9,
+                "source": source,
+                "is_active": True
+            })
+            logger.info(f"Fact '{fact[:40]}...' permanently written to Supabase.")
+        except Exception as e:
+            logger.warning(f"Could not write learned fact directly to Supabase: {e}")
+
+        return {"status": "success", "message": "Theek hai, maine permanently yaad kar liya! ✅"}
+
+    def _is_logical(self, fact: str) -> bool:
         if len(fact) < 5: return False
         if fact.isdigit() or len(set(fact)) < 3: return False
         return True
 
-    def _is_duplicate(self, fact, category):
-        """Check if fact already exists."""
+    def _is_duplicate(self, fact: str, category: str) -> bool:
         fact_lower = fact.lower()
         for item in self.data[category]:
             if fact_lower in item["fact"].lower():
                 return True
         return False
 
-    def _is_harmful(self, fact):
-        """Safety check."""
+    def _is_harmful(self, fact: str) -> bool:
         harmful_keywords = ["bomb", "kill", "hack", "password", "abuse", "vulgar"]
         return any(k in fact.lower() for k in harmful_keywords)
 
-    def retrieve(self, query, category=None):
-        """Search learned data for matches."""
+    def retrieve(self, query: str, category: Optional[str] = None) -> List[str]:
+        """Search learned data for matches across local storage and Supabase."""
         results = []
         categories = [category] if category else self.data.keys()
-        
         query_words = set(query.lower().split())
-        for cat in categories:
-            for item in self.data[cat]:
-                fact_words = set(item["fact"].lower().split())
-                if query_words & fact_words and item["confidence"] > 0.4:
-                    results.append(item["fact"])
-        
-        return results
 
-    def update_feedback(self, query, is_positive=True):
+        # 1. Local JSON search
+        for cat in categories:
+            for item in self.data.get(cat, []):
+                fact_words = set(item.get("fact", "").lower().split())
+                if query_words & fact_words and item.get("confidence", 1.0) > 0.4:
+                    results.append(item["fact"])
+
+        # 2. Supabase Training Items search
+        try:
+            from core.admin_service import admin_service
+            res = admin_service.get_training_items(category=category, search=query, limit=5)
+            for it in res.get("items", []):
+                resp = it.get("target_response")
+                if resp and resp not in results:
+                    results.append(resp)
+        except Exception as e:
+            logger.debug(f"Retrieval from Supabase skipped: {e}")
+
+        return results[:5]
+
+    def update_feedback(self, query: str, is_positive: bool = True) -> bool:
         """Update confidence based on user feedback."""
         found = False
         for cat in self.data:

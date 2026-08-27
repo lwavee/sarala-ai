@@ -1,4 +1,6 @@
-import { FolderKanban, Plus, Clock, MoreVertical, FileText } from "lucide-react";
+"use client";
+
+import { FolderKanban, Plus, Clock, MoreVertical, FileText, Menu } from "lucide-react";
 
 export default function ProjectPage() {
   const projects = [
@@ -8,19 +10,29 @@ export default function ProjectPage() {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 animate-fade-in custom-scrollbar">
+    <div className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-8 animate-fade-in custom-scrollbar">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-10 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-            <FolderKanban className="text-indigo-400" size={32} />
-            My Projects
-          </h1>
-          <p className="text-slate-400">Manage and organize your AI-assisted projects.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_mobile_sidebar"))}
+              className="md:hidden p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer mr-1"
+              title="Open Menu"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu size={16} />
+            </button>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2.5">
+              <FolderKanban className="text-indigo-400" size={28} />
+              My Projects
+            </h1>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-400">Manage and organize your AI-assisted projects.</p>
         </div>
         
-        <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium transition-all shadow-[0_0_15px_rgba(79,70,229,0.4)]">
-          <Plus size={20} />
+        <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-medium text-xs sm:text-sm transition-all shadow-[0_0_15px_rgba(79,70,229,0.4)] cursor-pointer">
+          <Plus size={18} />
           New Project
         </button>
       </div>

@@ -185,7 +185,7 @@ export default function VoiceBenchmarkPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans selection:bg-pink-500 selection:text-white">
+    <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950 text-slate-100 p-3 sm:p-6 md:p-8 font-sans selection:bg-pink-500 selection:text-white">
       {/* Header */}
       <header className="max-w-7xl mx-auto mb-6 sm:mb-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">

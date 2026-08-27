@@ -2,11 +2,12 @@ import json
 import os
 import time
 import logging
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Try to import supabase, but don't fail if not installed yet
+# Try to import supabase
 try:
     from supabase import create_client, Client
     HAS_SUPABASE = True
@@ -22,6 +23,7 @@ DEFAULT_USERS = {
         "nickname": "avee",
         "email": "loharavee@gmail.com",
         "password": "Sarla@123",
+        "role": "admin",
         "is_naveen": True
     }
 }
@@ -29,7 +31,7 @@ DEFAULT_USERS = {
 class MemoryStorage:
     """
     Handles:
-    - User Authentication & Profiles (Naveen pre-seeded + new signups)
+    - User Authentication & Role Profiles (admin vs user)
     - Long-term personal memory: saved permanently to Supabase (fallback to memory.json)
     - Short-term chat memory: auto-deletes entries older than 24 hours
     """
@@ -42,15 +44,14 @@ class MemoryStorage:
         self.chat_history = []  # Short-term in-memory conversation log
         self.supabase = None
         
-        supabase_url = os.environ.get("SUPABASE_URL", "")
-        supabase_key = os.environ.get("SUPABASE_KEY", "")
+        supabase_url = os.environ.get("SUPABASE_URL", "").strip().strip('"').strip("'")
+        supabase_key = os.environ.get("SUPABASE_KEY", "").strip().strip('"').strip("'")
         
         self.use_supabase = (
             HAS_SUPABASE and 
             supabase_url and 
             supabase_key and 
-            supabase_url != "your_supabase_url_here" and 
-            supabase_key != "your_supabase_anon_key_here"
+            "your_supabase" not in supabase_url
         )
         
         if self.use_supabase:
@@ -69,7 +70,7 @@ class MemoryStorage:
         self.users = dict(DEFAULT_USERS)
         if os.path.exists(self.users_filepath):
             try:
-                with open(self.users_filepath, "r") as f:
+                with open(self.users_filepath, "r", encoding="utf-8") as f:
                     saved_users = json.load(f)
                     self.users.update(saved_users)
             except Exception as e:
@@ -77,48 +78,84 @@ class MemoryStorage:
 
     def save_users(self):
         try:
-            with open(self.users_filepath, "w") as f:
+            with open(self.users_filepath, "w", encoding="utf-8") as f:
                 json.dump(self.users, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save users: {e}")
 
-    def authenticate_user(self, email: str, password: str):
+    def authenticate_user(self, email: str, password: str) -> Dict[str, Any]:
         email_clean = email.strip().lower()
         user = self.users.get(email_clean)
+
+        # Check Supabase profiles if user not found locally
+        if not user and self.use_supabase and self.supabase:
+            try:
+                tbl = self.supabase.table("profiles") if hasattr(self.supabase, "table") else None
+                if tbl is not None:
+                    res = tbl.select("*").eq("email", email_clean).execute()
+                    if res and isinstance(res.data, list) and len(res.data) > 0:
+                        p = res.data[0]
+                        if isinstance(p, dict):
+                            user = {
+                                "name": p.get("full_name", "User"),
+                                "nickname": p.get("nickname", ""),
+                                "email": email_clean,
+                                "password": password,
+                                "role": p.get("role", "user"),
+                                "is_naveen": (email_clean == "loharavee@gmail.com" or p.get("role") == "admin")
+                            }
+                            self.users[email_clean] = user
+                            self.save_users()
+            except Exception as e:
+                logger.warning(f"Error checking profile in Supabase: {e}")
+
         if user and user.get("password") == password:
-            is_naveen = (email_clean == "loharavee@gmail.com" or user.get("name", "").lower() == "naveen")
+            role = user.get("role") or ("admin" if email_clean == "loharavee@gmail.com" else "user")
+            is_naveen = (email_clean == "loharavee@gmail.com" or role == "admin")
             return {
                 "success": True,
                 "user": {
                     "name": user.get("name", "User"),
                     "nickname": user.get("nickname", ""),
                     "email": email_clean,
+                    "role": role,
                     "is_naveen": is_naveen
                 }
             }
         return {"success": False, "message": "Invalid email or password"}
 
-    def register_user(self, name: str, nickname: str, email: str, password: str):
+    def register_user(self, name: str, nickname: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
         email_clean = email.strip().lower()
         if email_clean in self.users:
             return {"success": False, "message": "Email is already registered"}
         
-        is_naveen = (email_clean == "loharavee@gmail.com" or name.strip().lower() == "naveen")
+        assigned_role = "admin" if email_clean == "loharavee@gmail.com" else role
+        is_naveen = (email_clean == "loharavee@gmail.com" or assigned_role == "admin")
         new_user = {
             "name": name.strip().title(),
             "nickname": nickname.strip().lower(),
             "email": email_clean,
             "password": password,
+            "role": assigned_role,
             "is_naveen": is_naveen
         }
         self.users[email_clean] = new_user
         self.save_users()
 
-        if self.use_supabase:
+        if self.use_supabase and self.supabase:
             try:
-                self.supabase.table("users").upsert(new_user).execute()
+                profile_record = {
+                    "email": email_clean,
+                    "role": assigned_role,
+                    "full_name": new_user["name"],
+                    "nickname": new_user["nickname"],
+                    "is_active": True
+                }
+                tbl = self.supabase.table("profiles") if hasattr(self.supabase, "table") else None
+                if tbl is not None:
+                    tbl.upsert(profile_record).execute()
             except Exception as e:
-                logger.error(f"Failed to save new user to Supabase: {e}")
+                logger.error(f"Failed to save profile to Supabase: {e}")
 
         return {
             "success": True,
@@ -126,42 +163,51 @@ class MemoryStorage:
                 "name": new_user["name"],
                 "nickname": new_user["nickname"],
                 "email": email_clean,
+                "role": assigned_role,
                 "is_naveen": is_naveen
             }
         }
 
     # ---- Permanent Personal Memory (Supabase) ----
     def load(self):
-        if self.use_supabase:
+        if self.use_supabase and self.supabase:
             try:
-                response = self.supabase.table("memories").select("*").execute()
-                for row in response.data:
-                    self.data[row["key"]] = row["value"]
-                logger.info(f"Loaded {len(self.data)} permanent memories from Supabase.")
-                return
+                tbl = self.supabase.table("memories") if hasattr(self.supabase, "table") else None
+                if tbl is not None:
+                    response = tbl.select("*").execute()
+                    if response and isinstance(response.data, list):
+                        for row in response.data:
+                            if isinstance(row, dict) and "key" in row and "value" in row:
+                                self.data[str(row["key"])] = row["value"]
+                        logger.info(f"Loaded {len(self.data)} permanent memories from Supabase.")
+                        return
             except Exception as e:
                 logger.error(f"Failed to load from Supabase, falling back to local memory.json: {e}")
-                self.use_supabase = False
                 
         if os.path.exists(self.filepath):
             try:
-                with open(self.filepath, "r") as f:
+                with open(self.filepath, "r", encoding="utf-8") as f:
                     self.data = json.load(f)
             except Exception:
                 self.data = {}
 
     def save(self):
-        with open(self.filepath, "w") as f:
-            json.dump(self.data, f, indent=4)
+        try:
+            with open(self.filepath, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error saving memory.json: {e}")
 
     def remember(self, key, value):
         """Save a long-term personal fact permanently (e.g. user_name = 'Naveen')"""
         self.data[key] = value
         
-        if self.use_supabase:
+        if self.use_supabase and self.supabase:
             try:
-                self.supabase.table("memories").upsert({"key": key, "value": value}).execute()
-                logger.info(f"Saved memory '{key}' permanently to Supabase.")
+                tbl = self.supabase.table("memories") if hasattr(self.supabase, "table") else None
+                if tbl is not None:
+                    tbl.upsert({"key": key, "value": str(value)}).execute()
+                    logger.info(f"Saved memory '{key}' permanently to Supabase.")
             except Exception as e:
                 logger.error(f"Failed to save memory to Supabase: {e}")
                 

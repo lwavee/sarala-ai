@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { 
-  MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart, 
+import {
+  MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart,
   Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User,
-  Video, Radio, Mic, Menu, Volume2
+  Video, Radio, Mic, Menu, Volume2, ArrowRight
 } from "lucide-react";
 import LiveModeModal from "@/components/live/LiveModeModal";
 
@@ -17,6 +17,7 @@ export interface UserSession {
   name: string;
   nickname: string;
   email: string;
+  role?: string;
   is_naveen: boolean;
 }
 
@@ -30,13 +31,13 @@ export default function RootLayout({
   const [isLiveModeOpen, setIsLiveModeOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [userSession, setUserSession] = useState<UserSession | null>(null);
-  
+
   // Auth Modal State
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authTab, setAuthTab] = useState<"login" | "signup">("login");
   const [loginEmail, setLoginEmail] = useState<string>("");
   const [loginPassword, setLoginPassword] = useState<string>("");
-  
+
   // Signup fields
   const [signupName, setSignupName] = useState<string>("");
   const [signupNickname, setSignupNickname] = useState<string>("");
@@ -53,7 +54,7 @@ export default function RootLayout({
     // Load theme
     const savedMode = localStorage.getItem("sarla_theme_mode") || "dark";
     setThemeMode(savedMode);
-    document.body.className = `${inter.className} flex h-screen overflow-hidden mode-${savedMode}`;
+    document.body.className = `${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${savedMode}`;
 
     const handleOpenLive = () => setIsLiveModeOpen(true);
     const handleOpenMobileSidebar = () => setIsMobileSidebarOpen(true);
@@ -61,10 +62,11 @@ export default function RootLayout({
     window.addEventListener("sarla_open_mobile_sidebar", handleOpenMobileSidebar);
 
     // Load User Session
-    const defaultUserSession = {
+    const defaultUserSession: UserSession = {
       name: "Naveen",
       nickname: "avee",
       email: "loharavee@gmail.com",
+      role: "admin",
       is_naveen: true,
     };
     const savedSession = localStorage.getItem("sarla_user_session");
@@ -87,7 +89,7 @@ export default function RootLayout({
       try {
         const threads = JSON.parse(savedThreads);
         setChatThreads(threads);
-      } catch (e) {}
+      } catch (e) { }
     } else {
       const initialThreads = [{ id: "thread_1", title: "General Discussion" }];
       setChatThreads(initialThreads);
@@ -107,7 +109,7 @@ export default function RootLayout({
     }
     setThemeMode(mode);
     localStorage.setItem("sarla_theme_mode", mode);
-    document.body.className = `${inter.className} flex h-screen overflow-hidden mode-${mode}`;
+    document.body.className = `${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${mode}`;
   };
 
   const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPassword?: string) => {
@@ -163,7 +165,8 @@ export default function RootLayout({
           name: signupName,
           nickname: signupNickname,
           email: signupEmail,
-          password: signupPassword
+          password: signupPassword,
+          role: signupEmail.toLowerCase() === "loharavee@gmail.com" ? "admin" : "user"
         })
       });
       const data = await res.json();
@@ -220,7 +223,7 @@ export default function RootLayout({
       name: "Love Mode (Partner)",
       icon: Heart,
       color: "from-pink-500 to-rose-600",
-      desc: userSession?.is_naveen 
+      desc: userSession?.is_naveen
         ? "Loving Real-Life Partner & Companion (Exclusive for Naveen)"
         : "🔒 Unlocked Exclusively for Naveen (avee)"
     },
@@ -242,31 +245,49 @@ export default function RootLayout({
 
   const userDisplayName = userSession?.nickname ? `${userSession.name} (${userSession.nickname})` : (userSession?.name || "Guest");
   const userInitials = userSession?.name ? userSession.name.substring(0, 2).toUpperCase() : "G";
+  const isAdmin = userSession?.role === "admin" || userSession?.is_naveen || userSession?.email === "loharavee@gmail.com";
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.className} flex flex-col md:flex-row h-screen overflow-hidden mode-${themeMode}`}>
-        
+      <body suppressHydrationWarning className={`${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${themeMode}`}>
+
         {/* ── Mobile Top Bar (visible on phones only) ── */}
-        <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-white/10 bg-black/60 backdrop-blur-xl shrink-0 z-30">
+        <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-white/10 bg-black/70 backdrop-blur-xl shrink-0 z-30 pt-safe">
           {/* Brand */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer mr-1"
+              title="Open Navigation Menu"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu size={18} />
+            </button>
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg">
               <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
                 <Sparkles size={14} className="text-pink-400" />
               </div>
             </div>
-            <span className="text-base font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
+            <span className="text-sm font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
               SARLA AI
             </span>
           </div>
 
-          {/* Actions */}
+          {/* Quick Actions */}
           <div className="flex items-center gap-1">
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className="p-2 rounded-xl text-pink-400 hover:bg-pink-500/20 transition-all"
+                title="Admin Dashboard & Training Mode"
+              >
+                <Shield size={18} />
+              </Link>
+            )}
             <button
               onClick={() => setIsLiveModeOpen(true)}
               className="p-2 rounded-xl text-pink-400 hover:bg-pink-500/20 transition-all"
-              title="Live Mode"
+              title="Live 3D Mode"
             >
               <Radio size={18} className="animate-pulse" />
             </button>
@@ -287,8 +308,8 @@ export default function RootLayout({
           </div>
         </div>
 
-        {/* Gemini-Style Sidebar */}
-        <aside suppressHydrationWarning className="w-64 border-r border-white/10 flex flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20">
+        {/* ── Desktop Sidebar Navigation (Laptop & Desktop) ── */}
+        <aside suppressHydrationWarning className="w-64 border-r border-white/10 flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20 shrink-0">
           <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
             {/* Sarla AI Brand Logo */}
             <div className="flex items-center gap-3 px-2 mb-6">
@@ -305,7 +326,7 @@ export default function RootLayout({
             {/* New Chat Button */}
             <button
               onClick={handleCreateNewChat}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium mb-6 transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/25"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium mb-6 transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/25 cursor-pointer"
             >
               <Plus size={20} />
               <span>New chat</span>
@@ -313,15 +334,34 @@ export default function RootLayout({
 
             {/* Nav Menu */}
             <nav className="space-y-1 mb-6">
+              {/* Admin & Training Mode Link */}
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/40 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-2 cursor-pointer shadow-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <Shield size={18} className="text-pink-400" />
+                    <span>Admin & Training</span>
+                  </div>
+                  <span className="text-[10px] bg-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    ADMIN
+                  </span>
+                </Link>
+              )}
+
               <button
                 onClick={() => setIsLiveModeOpen(true)}
-                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer"
+                className="relative overflow-hidden w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer shadow-[0_0_15px_rgba(236,72,153,0.15)]"
               >
-                <div className="flex items-center gap-3">
-                  <Radio size={18} className="text-pink-400 animate-pulse" />
-                  <span>Live Mode</span>
+                {/* Pulsing overlay */}
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 via-transparent to-cyan-500/10 animate-pulse blur-md"></div>
+
+                <div className="relative z-10 flex items-center gap-3">
+                  <Radio size={18} className="text-pink-400 animate-pulse drop-shadow-[0_0_5px_rgba(236,72,153,0.8)]" />
+                  <span className="drop-shadow-md">Live 3D Mode</span>
                 </div>
-                <span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                <span className="relative z-10 text-[10px] bg-gradient-to-r from-red-600 to-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)] border border-white/20">
                   LIVE
                 </span>
               </button>
@@ -335,11 +375,27 @@ export default function RootLayout({
               </Link>
 
               <Link
+                href="/voice-test"
+                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+              >
+                <Volume2 size={18} className="text-violet-400" />
+                <span>Voice Studio</span>
+              </Link>
+
+              <Link
                 href="/voice-benchmark"
                 className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
               >
                 <Mic size={18} className="text-pink-400" />
                 <span>Voice Benchmark</span>
+              </Link>
+
+              <Link
+                href="/project"
+                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+              >
+                <FolderKanban size={18} className="text-amber-400" />
+                <span>Projects</span>
               </Link>
             </nav>
 
@@ -354,11 +410,10 @@ export default function RootLayout({
                       setActiveThreadId(t.id);
                       window.dispatchEvent(new CustomEvent("sarla_switch_thread", { detail: { threadId: t.id } }));
                     }}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                      activeThreadId === t.id
+                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${activeThreadId === t.id
                         ? "bg-white/15 text-white font-semibold"
                         : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     <MessageSquare size={14} className="shrink-0 text-slate-400" />
                     <span className="truncate">{t.title}</span>
@@ -377,7 +432,7 @@ export default function RootLayout({
               <div className="truncate max-w-[100px]">
                 <p className="text-sm font-semibold text-white leading-tight truncate">{userDisplayName}</p>
                 <p className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                  <UserCheck size={10} /> {userSession?.is_naveen ? "Naveen (Owner)" : "Verified"}
+                  <UserCheck size={10} /> {isAdmin ? "Admin (Owner)" : "User"}
                 </p>
               </div>
             </div>
@@ -401,7 +456,7 @@ export default function RootLayout({
           </div>
         </aside>
 
-        {/* Mobile Slide-Over Sidebar Drawer Popup */}
+        {/* ── Mobile Slide-Over Sidebar Drawer Popup ── */}
         {isMobileSidebarOpen && (
           <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
             {/* Backdrop Blur Overlay */}
@@ -412,7 +467,7 @@ export default function RootLayout({
 
             {/* Slide Drawer Content from Left */}
             <aside
-              className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] bg-slate-950/95 backdrop-blur-2xl border-r border-white/15 flex flex-col justify-between shadow-2xl z-50 animate-slide-in-left select-none"
+              className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] bg-slate-950/95 backdrop-blur-2xl border-r border-white/15 flex flex-col justify-between shadow-2xl z-50 animate-slide-in-left select-none pb-safe pt-safe"
             >
               <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
                 {/* Brand Logo & Close Button */}
@@ -450,18 +505,37 @@ export default function RootLayout({
 
                 {/* Nav Menu */}
                 <nav className="space-y-1 mb-6">
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setIsMobileSidebarOpen(false)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/40 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-2 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Shield size={18} className="text-pink-400" />
+                        <span>Admin & Training</span>
+                      </div>
+                      <span className="text-[10px] bg-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        ADMIN
+                      </span>
+                    </Link>
+                  )}
+
                   <button
                     onClick={() => {
                       setIsLiveModeOpen(true);
                       setIsMobileSidebarOpen(false);
                     }}
-                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer"
+                    className="relative overflow-hidden w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer shadow-[0_0_15px_rgba(236,72,153,0.15)]"
                   >
-                    <div className="flex items-center gap-3">
-                      <Radio size={18} className="text-pink-400 animate-pulse" />
-                      <span>Live Mode</span>
+                    {/* Pulsing overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 via-transparent to-cyan-500/10 animate-pulse blur-md"></div>
+
+                    <div className="relative z-10 flex items-center gap-3">
+                      <Radio size={18} className="text-pink-400 animate-pulse drop-shadow-[0_0_5px_rgba(236,72,153,0.8)]" />
+                      <span className="drop-shadow-md">Live 3D Mode</span>
                     </div>
-                    <span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                    <span className="relative z-10 text-[10px] bg-gradient-to-r from-red-600 to-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)] border border-white/20">
                       LIVE
                     </span>
                   </button>
@@ -492,6 +566,15 @@ export default function RootLayout({
                     <Mic size={18} className="text-pink-400" />
                     <span>Voice Benchmark</span>
                   </Link>
+
+                  <Link
+                    href="/project"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
+                  >
+                    <FolderKanban size={18} className="text-amber-400" />
+                    <span>Projects</span>
+                  </Link>
                 </nav>
 
                 {/* Recents Chat History List */}
@@ -506,11 +589,10 @@ export default function RootLayout({
                           window.dispatchEvent(new CustomEvent("sarla_switch_thread", { detail: { threadId: t.id } }));
                           setIsMobileSidebarOpen(false);
                         }}
-                        className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                          activeThreadId === t.id
+                        className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${activeThreadId === t.id
                             ? "bg-white/15 text-white font-semibold"
                             : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-                        }`}
+                          }`}
                       >
                         <MessageSquare size={14} className="shrink-0 text-slate-400" />
                         <span className="truncate">{t.title}</span>
@@ -529,7 +611,7 @@ export default function RootLayout({
                   <div className="truncate max-w-[110px]">
                     <p className="text-sm font-semibold text-white leading-tight truncate">{userDisplayName}</p>
                     <p className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                      <UserCheck size={10} /> {userSession?.is_naveen ? "Naveen (Owner)" : "Verified"}
+                      <UserCheck size={10} /> {isAdmin ? "Admin (Owner)" : "User"}
                     </p>
                   </div>
                 </div>
@@ -561,15 +643,15 @@ export default function RootLayout({
           </div>
         )}
 
-        {/* Main Content Viewport */}
-        <main suppressHydrationWarning className="flex-1 flex flex-col h-full relative overflow-hidden">
+        {/* ── Main Content Viewport ── */}
+        <main suppressHydrationWarning className="flex-1 flex flex-col h-full min-h-0 relative overflow-hidden">
           {children}
         </main>
 
-        {/* Authentication Modal Popup */}
+        {/* ── Authentication Modal Popup ── */}
         {isAuthOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-lg p-4 animate-fade-in">
-            <div className="bg-slate-900 border border-white/15 rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+            <div className="bg-slate-900 border border-white/15 rounded-3xl p-6 max-w-md w-full shadow-2xl relative max-h-[90dvh] overflow-y-auto custom-scrollbar">
               <div className="text-center mb-6">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500 via-indigo-500 to-cyan-400 p-0.5 mx-auto mb-3 shadow-lg flex items-center justify-center animate-pulse-glow">
                   <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
@@ -584,17 +666,15 @@ export default function RootLayout({
               <div className="flex bg-white/5 p-1 rounded-2xl mb-6 border border-white/10">
                 <button
                   onClick={() => { setAuthTab("login"); setAuthError(""); }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    authTab === "login" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-white"
-                  }`}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${authTab === "login" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-white"
+                    }`}
                 >
                   Login
                 </button>
                 <button
                   onClick={() => { setAuthTab("signup"); setAuthError(""); }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    authTab === "signup" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-white"
-                  }`}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${authTab === "signup" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-white"
+                    }`}
                 >
                   Sign Up
                 </button>
@@ -653,7 +733,7 @@ export default function RootLayout({
                       }}
                       className="w-full py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2"
                     >
-                      <UserCheck size={14} /> Quick Demo: Login as Naveen (Pre-seeded)
+                      <UserCheck size={14} /> Quick Demo: Login as Naveen (Admin Owner)
                     </button>
                   </div>
                 </form>
@@ -720,7 +800,7 @@ export default function RootLayout({
                     disabled={authLoading}
                     className="w-full py-3 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium rounded-xl text-sm transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 mt-2"
                   >
-                    {authLoading ? "Creating Account..." : "Create Permanent Account"}
+                    {authLoading ? "Creating Account..." : "Create Account"}
                   </button>
                 </form>
               )}
@@ -728,10 +808,10 @@ export default function RootLayout({
           </div>
         )}
 
-        {/* Settings & Theme Selection Popup Modal */}
+        {/* ── Settings & Theme Selection Popup Modal ── */}
         {isSettingsOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-fade-in">
-            <div className="bg-slate-900 border border-white/15 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative">
+            <div className="bg-slate-900 border border-white/15 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative max-h-[90dvh] overflow-y-auto custom-scrollbar">
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -762,13 +842,12 @@ export default function RootLayout({
                       <div
                         key={t.id}
                         onClick={() => !isLoveLocked && handleModeChange(t.id)}
-                        className={`p-4 rounded-2xl border transition-all flex items-start gap-4 ${
-                          isLoveLocked
+                        className={`p-4 rounded-2xl border transition-all flex items-start gap-4 ${isLoveLocked
                             ? "opacity-50 cursor-not-allowed bg-white/5 border-white/5"
                             : isSelected
-                            ? "bg-indigo-900/30 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.3)] cursor-pointer"
-                            : "bg-white/5 border-white/10 hover:border-white/20 cursor-pointer"
-                        }`}
+                              ? "bg-indigo-900/30 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.3)] cursor-pointer"
+                              : "bg-white/5 border-white/10 hover:border-white/20 cursor-pointer"
+                          }`}
                       >
                         <div className={`p-2.5 rounded-xl bg-gradient-to-tr ${t.color} text-white shrink-0`}>
                           <IconComp size={20} />
@@ -813,7 +892,7 @@ export default function RootLayout({
           </div>
         )}
 
-        {/* Real-Time Live AI Girl Video Chat Mode Overlay */}
+        {/* ── Real-Time Live AI Girl Video Chat Mode Overlay ── */}
         <LiveModeModal
           isOpen={isLiveModeOpen}
           onClose={() => setIsLiveModeOpen(false)}

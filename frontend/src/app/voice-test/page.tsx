@@ -188,7 +188,7 @@ export default function VoiceTestPage() {
   const isOnline = isChatterbox || activeProvider === "neural";
 
   return (
-    <div className="flex-1 flex flex-col p-4 sm:p-6 md:p-10 max-w-6xl mx-auto w-full text-slate-100">
+    <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-3 sm:p-6 md:p-10 max-w-6xl mx-auto w-full text-slate-100">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800/80 mb-6 sm:mb-8">
         <div>

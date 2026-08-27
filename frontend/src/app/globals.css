@@ -12,6 +12,10 @@
   --primary-hover: #4f46e5;
   --surface: rgba(15, 23, 42, 0.7); 
   --border: rgba(99, 102, 241, 0.2);
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
 }
 
 /* Theme variations */
@@ -43,13 +47,55 @@ body.mode-dark_blue {
   --border: rgba(251, 191, 36, 0.3);
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  min-height: 100vh;
   transition: background-color 0.4s ease, color 0.4s ease;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Safe Area Inset Utility Classes for Modern Mobile Viewports */
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0.5rem);
+}
+
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+.pl-safe {
+  padding-left: max(env(safe-area-inset-left), 0.5rem);
+}
+
+.pr-safe {
+  padding-right: max(env(safe-area-inset-right), 0.5rem);
+}
+
+.min-h-dvh {
+  min-height: 100dvh;
+}
+
+.h-dvh {
+  height: 100dvh;
+}
+
+.max-h-dvh {
+  max-height: 100dvh;
 }
 
 /* Glassmorphism utility classes */
@@ -64,33 +110,47 @@ body {
 .glass-panel {
   background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
+/* Fluid Max Width Containers */
+.container-responsive {
+  width: 100%;
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* Scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar,
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
+  height: 5px;
 }
+.custom-scrollbar::-webkit-scrollbar-track,
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.15);
 }
+.custom-scrollbar::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
 }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:hover {
   background: var(--foreground);
 }
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pulse-glow {
@@ -186,15 +246,6 @@ body {
   }
 }
 
-@keyframes audioBarWave {
-  0%, 100% {
-    height: 4px;
-  }
-  50% {
-    height: 24px;
-  }
-}
-
 .animate-avatar-idle {
   animation: avatarBreathing 4.5s ease-in-out infinite;
 }
@@ -228,8 +279,20 @@ body {
 }
 
 .animate-slide-in-left {
-  animation: slideInLeft 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideInLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Audio wave animation */
+@keyframes soundWave {
+  0%, 100% { height: 4px; }
+  50% { height: 18px; }
+}
+
+.animate-sound-wave-1 { animation: soundWave 0.8s ease-in-out infinite 0.1s; }
+.animate-sound-wave-2 { animation: soundWave 0.8s ease-in-out infinite 0.3s; }
+.animate-sound-wave-3 { animation: soundWave 0.8s ease-in-out infinite 0.5s; }
+.animate-sound-wave-4 { animation: soundWave 0.8s ease-in-out infinite 0.2s; }
+.animate-sound-wave-5 { animation: soundWave 0.8s ease-in-out infinite 0.4s; }
 
 /* Hide Next.js dev overlay indicator on mobile view */
 [data-nextjs-dev-indicator],
@@ -237,4 +300,3 @@ body {
 nextjs-portal {
   display: none !important;
 }
-

@@ -3,6 +3,7 @@ uvicorn
 pydantic
 python-dotenv
 python-multipart
+pytesseract
 requests
 google-genai
 google-generativeai
@@ -19,3 +20,6 @@ edge-tts
 gradio_client
 # Audio format conversion for reference audio preprocessing
 pydub
+PyPDF2
+Pillow
+python-multipart
