@@ -41,6 +41,7 @@ allowed_origins = [
     "http://127.0.0.1:8000",
     "http://localhost:8008",
     "http://127.0.0.1:8008",
+    "https://sarala-ai-pi.vercel.app",
 ]
 
 frontend_url = os.getenv("FRONTEND_URL", "")
@@ -53,6 +54,7 @@ if frontend_url:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
