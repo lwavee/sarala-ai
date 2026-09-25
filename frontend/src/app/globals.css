@@ -6,45 +6,108 @@
 }
 
 :root {
-  --background: #090d16;
-  --foreground: #f3f4f6;
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --surface: rgba(15, 23, 42, 0.7); 
-  --border: rgba(99, 102, 241, 0.2);
+  /* Default: Luminous Frosted Glassmorphism Tokens (Light Mode) */
+  --bg-image: url('/light-bg.png');
+  --bg-overlay: rgba(255, 255, 255, 0.05);
+  --theme-text-primary: #0f172a;
+  --theme-text-secondary: #334155;
+  --theme-text-muted: #64748b;
+  
+  --surface-panel: rgba(255, 255, 255, 0.50);
+  --surface-card: rgba(255, 255, 255, 0.62);
+  --surface-sidebar: rgba(255, 255, 255, 0.50);
+  --surface-button: rgba(255, 255, 255, 0.70);
+  --surface-input: rgba(255, 255, 255, 0.85);
+  
+  --border-color: rgba(255, 255, 255, 0.82);
+  --border-subtle: rgba(255, 255, 255, 0.60);
+  
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --pill-bg: rgba(255, 255, 255, 0.65);
+  --pill-hover: rgba(255, 255, 255, 0.90);
+  --dropdown-bg: rgba(255, 255, 255, 0.95);
+  
+  --radius-sm: 0.5rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.5rem;
+
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
 }
 
-/* Theme variations */
-body.mode-dark {
-  --background: #090d16;
-  --foreground: #38bdf8;
-  --surface: rgba(14, 165, 233, 0.08);
-  --border: rgba(56, 189, 248, 0.25);
+/* ── Light Mode (E:\sarlaai\sarala-ai\frontend\public\light-bg.png) ── */
+.mode-light, body.mode-light {
+  --bg-image: url('/light-bg.png');
+  --bg-overlay: rgba(255, 255, 255, 0.05);
+  --theme-text-primary: #0f172a;
+  --theme-text-secondary: #334155;
+  --theme-text-muted: #64748b;
+  
+  --surface-panel: rgba(255, 255, 255, 0.50);
+  --surface-card: rgba(255, 255, 255, 0.62);
+  --surface-sidebar: rgba(255, 255, 255, 0.50);
+  --surface-button: rgba(255, 255, 255, 0.70);
+  --surface-input: rgba(255, 255, 255, 0.85);
+  
+  --border-color: rgba(255, 255, 255, 0.82);
+  --border-subtle: rgba(255, 255, 255, 0.60);
+  
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --pill-bg: rgba(255, 255, 255, 0.65);
+  --pill-hover: rgba(255, 255, 255, 0.90);
+  --dropdown-bg: rgba(255, 255, 255, 0.95);
 }
 
-body.mode-love {
-  --background: #1a0815;
-  --foreground: #f472b6;
-  --surface: rgba(244, 114, 182, 0.12);
-  --border: rgba(244, 114, 182, 0.35);
+/* ── Love Mode (E:\sarlaai\sarala-ai\frontend\public\love-bg.png) ── */
+.mode-love, body.mode-love {
+  --bg-image: url('/love-bg.png');
+  --bg-overlay: rgba(28, 8, 20, 0.35);
+  --theme-text-primary: #ffffff;
+  --theme-text-secondary: #fce7f3;
+  --theme-text-muted: #f472b6;
+  
+  --surface-panel: rgba(45, 12, 30, 0.55);
+  --surface-card: rgba(65, 16, 42, 0.52);
+  --surface-sidebar: rgba(38, 10, 26, 0.65);
+  --surface-button: rgba(244, 114, 182, 0.22);
+  --surface-input: rgba(45, 12, 30, 0.75);
+  
+  --border-color: rgba(244, 114, 182, 0.35);
+  --border-subtle: rgba(244, 114, 182, 0.20);
+  
+  --accent: #ec4899;
+  --accent-glow: rgba(236, 72, 153, 0.35);
+  --pill-bg: rgba(70, 18, 48, 0.60);
+  --pill-hover: rgba(95, 24, 65, 0.80);
+  --dropdown-bg: rgba(38, 10, 26, 0.95);
 }
 
-body.mode-light {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --surface: rgba(255, 255, 255, 0.9);
-  --border: rgba(203, 213, 225, 0.8);
-}
-
-body.mode-dark_blue {
-  --background: #060e26;
-  --foreground: #fbbf24;
-  --surface: rgba(30, 58, 138, 0.3);
-  --border: rgba(251, 191, 36, 0.3);
+/* ── Dark Mode (E:\sarlaai\sarala-ai\frontend\public\bark-bg.png) ── */
+.mode-dark, body.mode-dark, .mode-dark_blue, body.mode-dark_blue {
+  --bg-image: url('/bark-bg.png');
+  --bg-overlay: rgba(6, 10, 20, 0.45);
+  --theme-text-primary: #f8fafc;
+  --theme-text-secondary: #cbd5e1;
+  --theme-text-muted: #94a3b8;
+  
+  --surface-panel: rgba(15, 23, 42, 0.65);
+  --surface-card: rgba(30, 41, 59, 0.55);
+  --surface-sidebar: rgba(15, 23, 42, 0.65);
+  --surface-button: rgba(30, 41, 59, 0.65);
+  --surface-input: rgba(15, 23, 42, 0.80);
+  
+  --border-color: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  
+  --accent: #38bdf8;
+  --accent-glow: rgba(56, 189, 248, 0.30);
+  --pill-bg: rgba(30, 41, 59, 0.60);
+  --pill-hover: rgba(51, 65, 85, 0.80);
+  --dropdown-bg: rgba(15, 23, 42, 0.95);
 }
 
 * {
@@ -61,7 +124,7 @@ html, body {
 
 body {
   background-color: var(--background);
-  color: var(--foreground);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.4s ease, color 0.4s ease;
@@ -107,12 +170,13 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
-.glass-panel {
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+/* Utility to hide scrollbar on mobile scrollable containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Fluid Max Width Containers */
@@ -299,4 +363,96 @@ body {
 [data-nextjs-toast-wrapper],
 nextjs-portal {
   display: none !important;
+}
+
+/* ==================================================
+   GLOBAL DESIGN SYSTEM CLASSES (FROSTED GLASSMORPHISM)
+   ================================================== */
+
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.05);
+}
+
+.glass-panel {
+  background: var(--surface-panel);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.08);
+}
+
+.glass-card {
+  background: var(--surface-card);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 25px -6px rgba(0, 0, 0, 0.06);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  border-color: var(--border-color);
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+.glass-sidebar {
+  background: var(--surface-sidebar);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.10);
+}
+
+.glass-pill {
+  background: var(--pill-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.glass-pill:hover {
+  background: var(--pill-hover);
+  box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.10);
+}
+
+.glass-button {
+  background: var(--surface-button);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.glass-button:hover {
+  border-color: var(--border-color);
+  box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.08);
+}
+
+.glass-input {
+  background: var(--surface-input);
+  border: 1px solid var(--border-color);
+  color: var(--theme-text-primary);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.05);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }

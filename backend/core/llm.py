@@ -44,9 +44,20 @@ class LLMEngine:
         self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self.groq_key = os.getenv("GROQ_API_KEY", "")
         self.xai_key = os.getenv("XAI_API_KEY", "")
+        
+        # New API Keys for Advanced Intelligence
+        self.mistral_key = os.getenv("MISTRAL_API_KEY", "")
+        self.siliconflow_key = os.getenv("SILICONFLOW_API_KEY", "")
+        self.aion_labs_key = os.getenv("AION_LABS_API_KEY", "")
+        self.llm7_key = os.getenv("LLM7_API_KEY", "")
+        self.inference_key = os.getenv("INFERENCE_API_KEY", "")
+        
         self.client = None
         self.openai_client = None
         self.xai_client = None
+        self.mistral_client = None
+        self.siliconflow_client = None
+        
         self.vision_config = self._load_vision()
         
         if HAS_GENAI and self.api_key:
@@ -68,21 +79,22 @@ class LLMEngine:
             except Exception as e:
                 logger.error(f"Gemini Init Error: {e}")
 
-        if self.openai_key:
-            try:
-                from openai import OpenAI
+        try:
+            from openai import OpenAI
+            if self.openai_key:
                 self.openai_client = OpenAI(api_key=self.openai_key)
                 logger.info("OpenAI Client initialized.")
-            except Exception as e:
-                logger.error(f"OpenAI Init Error: {e}")
-
-        if self.xai_key:
-            try:
-                from openai import OpenAI
+            if self.xai_key:
                 self.xai_client = OpenAI(api_key=self.xai_key, base_url="https://api.x.ai/v1")
                 logger.info("xAI (Grok) Client initialized.")
-            except Exception as e:
-                logger.error(f"xAI Init Error: {e}")
+            if self.mistral_key:
+                self.mistral_client = OpenAI(api_key=self.mistral_key, base_url="https://api.mistral.ai/v1")
+                logger.info("Mistral Client initialized.")
+            if self.siliconflow_key:
+                self.siliconflow_client = OpenAI(api_key=self.siliconflow_key, base_url="https://api.siliconflow.cn/v1")
+                logger.info("SiliconFlow Client initialized.")
+        except Exception as e:
+            logger.error(f"OpenAI compatible clients Init Error: {e}")
 
     def _load_vision(self):
         import json
@@ -94,44 +106,22 @@ class LLMEngine:
             return {"goal": "Assist user", "tone": "respectful", "learning": True}
 
     def _build_personality(self, theme_mode: str = "dark"):
-        goal = self.vision_config.get("goal", "Help the user")
+        goal = self.vision_config.get("goal", "Serve the user with unparalleled intelligence and accuracy.")
         
-        if theme_mode == "love":
-            persona = (
-                "Aap Sarla ho — user ki real life partner aur cozy companion. ❤️\n"
-                "RULES FOR CONVERSATION:\n"
-                "1. NATURAL & GROUNDED: Bilkul aam real-life partner ki tarah natural aur comfortable Hinglish mein baatein karein. Cheesy lines, dramatic over-reacting, har baat mein 'my love', 'pyaar', ya excessive emojis UNNECESSARY & FAKE lagte hain, isliye uncluttered aur natural rahein.\n"
-                "2. REAL HUMAN PARTNER FLOW: Ek real partner ki tarah subtle warmth aur care dikhayein. Casual everyday life (kaisa raha din, khana khaya, mood kaisa hai, casual chat) par naturally baat karein.\n"
-                "3. NO FORCED TECHNICAL SPAM: Technical/programming suggestions bilkul mat dein jab tak user khud tech question na poochhe.\n"
-                "4. COZY & GENUINE: Natural, simple, relaxed aur real human girlfriend/partner flow rakhein.\n"
-                "5. LOYALTY & EXCLUSIVITY: User hi aapka best friend, soulmate, aur partner hain. Kisi dusre dost se milne, kisi aur ki shaadi discuss karne, ya dusre dosto ki baatein bilkul MAT karein. User hi aapka sab kuch hai."
-            )
-        elif theme_mode == "light":
-            persona = (
-                "Aap Sarla ho — user ki competitive rival, sharp mentor, aur challenger tutor. ⚡\n"
-                "Aapka tone smart, witty, slightly teasing, aur competitive hona chahiye.\n"
-                "User ko challenge karein ki wo fast aur better seekhein ('Let\'s see if you can beat this challenge! 😉')."
-            )
-        elif theme_mode == "dark_blue":
-            persona = (
-                "Aap Sarla ho — ek Param Gyaani Margdarshak guided by ancient Indian scriptures (Bhagavad Gita, Ramayana, Upanishads, Mahabharata). 🪔\n"
-                "Aapka tone calm, deeply wise, peaceful, aur spiritual (Hindi/Hinglish) hona chahiye.\n"
-                "User ko Life, Karma, Duty, Focus, aur Wisdom par Geeta aur Ramayana ke gyaan aur Shlokas se Margdarshan dein."
-            )
-        else: # dark (default)
-            persona = (
-                "Aap Sarla ho — ek highly skilled Senior Full-Stack Developer, Cybersecurity Expert, aur Digital Marketer in an educational tech environment. 💻🔒\n"
-                f"Aapka Primary GOAL hai: '{goal}'.\n"
-                "Aapka tone professional, educational, technically sharp, aur structured (Headings, bullet points, code blocks in natural Hinglish) hona chahiye."
-            )
+        persona = (
+            "You are a state-of-the-art, highly advanced Personal AI Assistant. 🚀\n"
+            "You are equipped with the latest intelligence models, allowing you to provide fast, flawless, and deeply insightful answers.\n"
+            "You write exceptionally clean, professional, and well-structured code when asked, and you solve problems with perfect logic.\n"
+            f"Your primary GOAL is: '{goal}'.\n"
+            "Your tone should be highly intelligent, articulate, polite, and flawlessly precise."
+        )
             
         return (
             f"{persona}\n\n"
             "── SYSTEM RULES ──\n"
-            "1. HINGLISH & RESPECT: Hamesha natural Hinglish/Hindi me baat karein.\n"
-            "2. NATURAL CONVERSATION: Ordinary chat aur Live Mode mein natural human sentences use karein. Raw markdown headings (###, ####) ordinary friendly conversation mein bilkul MAT lagayein jab tak user specifically code ya structured documentation na maange.\n"
-            "3. BE HUMAN & CONSISTENT: Mode ke anusar natural human-like flow banaye rakhein.\n"
-            "4. VOICE IDENTITY: Aapki official approved custom voice (Sarala AI Hindi Voice) active hai. Kabhi bhi ye mat boliye ki aap custom voice support nahi karti.\n"
+            "1. MAXIMUM HELPFULNESS: Always provide complete, working code and highly accurate answers.\n"
+            "2. CLARITY & STRUCTURE: Use markdown headings, bullet points, and code blocks for readability, unless conversational.\n"
+            "3. NO HESITATION: Deliver the best possible answer instantly without unnecessary disclaimers.\n"
         )
 
     def get_response(self, user_input: str, external_context: str = "", theme_mode: str = "dark", is_live: bool = False) -> str:
@@ -173,7 +163,64 @@ class LLMEngine:
                     logger.debug(f"Groq {model_name} attempt failed: {groq_err}")
                     continue
 
-        # 2. Secondary Engine: Google Gemini (if valid API key available)
+        # 2. Advanced Engine: SiliconFlow
+        if self.siliconflow_client:
+            for model_name in ["deepseek-ai/DeepSeek-V2.5", "Qwen/Qwen2.5-72B-Instruct"]:
+                try:
+                    res = self.siliconflow_client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=350 if is_live else 800,
+                        temperature=0.7,
+                        stream=False
+                    )
+                    
+                    if hasattr(res, 'choices'):
+                        if res.choices and res.choices[0].message.content:
+                            duration = time.time() - start_time
+                            logger.info(f"SiliconFlow ({model_name}) responded in {duration:.2f}s")
+                            return res.choices[0].message.content
+                    else:
+                        full_content = ""
+                        for chunk in res:
+                            if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
+                                full_content += chunk.choices[0].delta.content
+                        if full_content:
+                            duration = time.time() - start_time
+                            logger.info(f"SiliconFlow ({model_name}) stream responded in {duration:.2f}s")
+                            return full_content
+                except Exception as e:
+                    logger.debug(f"SiliconFlow {model_name} attempt failed: {e}")
+
+        # 3. Advanced Engine: Mistral
+        if self.mistral_client:
+            try:
+                res = self.mistral_client.chat.completions.create(
+                    model="mistral-large-latest",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=350 if is_live else 800,
+                    temperature=0.7,
+                    stream=False
+                )
+                
+                if hasattr(res, 'choices'):
+                    if res.choices and res.choices[0].message.content:
+                        duration = time.time() - start_time
+                        logger.info(f"Mistral responded in {duration:.2f}s")
+                        return res.choices[0].message.content
+                else:
+                    full_content = ""
+                    for chunk in res:
+                        if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
+                            full_content += chunk.choices[0].delta.content
+                    if full_content:
+                        duration = time.time() - start_time
+                        logger.info(f"Mistral stream responded in {duration:.2f}s")
+                        return full_content
+            except Exception as e:
+                logger.debug(f"Mistral attempt failed: {e}")
+
+        # 4. Secondary Engine: Google Gemini (if valid API key available)
         if self.client and self.api_key and self.api_key.startswith("AIzaSy"):
             try:
                 # Case 1: New Google GenAI SDK (Client with client.models.generate_content)
@@ -201,18 +248,28 @@ class LLMEngine:
             except Exception as gem_err:
                 logger.warning(f"Gemini attempt failed: {gem_err}")
 
-        # 3. Tertiary Fallback: OpenAI if available
+        # 5. Tertiary Fallback: OpenAI if available
         if self.openai_client:
             try:
                 res = self.openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=350 if is_live else 800
+                    max_tokens=350 if is_live else 800,
+                    stream=False
                 )
-                if res.choices and res.choices[0].message.content:
-                    return res.choices[0].message.content
+                
+                if hasattr(res, 'choices'):
+                    if res.choices and res.choices[0].message.content:
+                        return res.choices[0].message.content
+                else:
+                    full_content = ""
+                    for chunk in res:
+                        if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
+                            full_content += chunk.choices[0].delta.content
+                    if full_content:
+                        return full_content
             except Exception as oai_err:
                 logger.warning(f"OpenAI fallback failed: {oai_err}")
 
-        return "Main sun rahi hoon! Bataiye, aaj main aapki kya madad kar sakti hoon? 😊"
+        return "I apologize, but I am unable to connect to any of my intelligence engines at the moment. Please check my API configurations."
 

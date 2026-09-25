@@ -296,9 +296,9 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-slate-950 text-slate-100 font-sans">
+    <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-transparent text-slate-100 font-sans relative z-0">
       {/* ── Mobile Top Header (Phones & small tablets) ── */}
-      <div className="md:hidden flex items-center justify-between p-3 border-b border-white/10 bg-black/60 backdrop-blur-xl z-20 shrink-0">
+      <div className="md:hidden flex items-center justify-between p-3 border-b border-white/10 bg-white/5 backdrop-blur-xl z-20 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg">
             <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
@@ -321,7 +321,7 @@ export default function AdminPage() {
 
       {/* ── Admin Navigation Drawer / Sidebar ── */}
       <aside
-        className={`w-full md:w-64 border-r border-white/10 bg-slate-950/90 backdrop-blur-2xl flex flex-col justify-between z-30 transition-all duration-300 shrink-0 ${
+        className={`w-full md:w-64 glass-sidebar flex flex-col justify-between z-30 transition-all duration-300 shrink-0 ${
           isMobileNavOpen ? "block fixed inset-0 top-14 md:relative md:top-0" : "hidden md:flex"
         }`}
       >
@@ -347,8 +347,8 @@ export default function AdminPage() {
               onClick={() => { setActiveTab("training"); setIsMobileNavOpen(false); }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === "training"
-                  ? "bg-gradient-to-r from-pink-500/20 to-indigo-500/20 border border-pink-500/40 text-pink-300 shadow-md"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
+                  ? "bg-white/10 border border-white/20 text-white shadow-md"
+                  : "text-slate-400 hover:text-white hover:bg-white/5 border border-transparent"
               }`}
             >
               <div className="flex items-center gap-2.5">
@@ -440,7 +440,7 @@ export default function AdminPage() {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-white/10 bg-black/40">
+        <div className="p-4 border-t border-white/10 bg-transparent">
           <Link
             href="/chatbot"
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-all"

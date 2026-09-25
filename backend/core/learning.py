@@ -12,7 +12,13 @@ class LearningEngine:
     Handles storage, validation, permanent Supabase sync, and retrieval of learned facts.
     """
     
-    def __init__(self, learning_dir="learning"):
+    def __init__(self, learning_dir=None):
+        if learning_dir is None:
+            backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            learning_dir = os.path.join(backend_root, "learning")
+        elif not os.path.isabs(learning_dir):
+            backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            learning_dir = os.path.join(backend_root, learning_dir)
         self.learning_dir = learning_dir
         self.files = {
             "personal": "user_facts.json",

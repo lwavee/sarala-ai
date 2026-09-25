@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { 
   Send, Mic, MicOff, Sparkles, Heart, Shield, BookOpen, Bot, 
-  Volume2, VolumeX, Radio, Video, Menu, RefreshCw, Square, Paperclip
+  Volume2, VolumeX, Radio, Video, RefreshCw, Square, Paperclip
 } from "lucide-react";
 
 interface Message {
@@ -12,10 +13,14 @@ interface Message {
   text: string;
 }
 
-export default function ChatbotPage() {
+function ChatbotContent() {
+  const searchParams = useSearchParams();
+  const urlChatId = searchParams.get('id');
+
   const [messages, setMessages] = useState<Message[]>([
-    { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aapki kya madad kar sakti hoon? 😊" }
+    { id: "1", role: "sarla", text: "Hello! I am your advanced Personal AI Assistant, powered by ultra-fast intelligence models. How can I help you today? ✨" }
   ]);
+  const [chatId, setChatId] = useState<string>("");
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +35,41 @@ export default function ChatbotPage() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const loadChatById = useCallback((id: string) => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+      audioPlayerRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setIsVoiceLoading(false);
+
+    setChatId(String(id));
+    try {
+      const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+      const history = JSON.parse(historyStr);
+      const found = history.find((h: any) => String(h.id) === String(id));
+      if (found && Array.isArray(found.messages) && found.messages.length > 0) {
+        setMessages(found.messages);
+      }
+    } catch (e) {
+      console.error("Error loading chat history:", e);
+    }
+  }, []);
+
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const query = searchParams.get('q');
+      if (query && !window.sessionStorage.getItem('query_handled')) {
+        setInput(query);
+        window.sessionStorage.setItem('query_handled', 'true');
+        window.history.replaceState({}, '', '/chatbot');
+      }
+    }
+
     const activeMode = localStorage.getItem("sarla_theme_mode") || "dark";
     setThemeMode(activeMode);
 
@@ -41,20 +80,74 @@ export default function ChatbotPage() {
 
     const handleNewChat = () => {
       stopSpeaking();
+      const newId = Date.now().toString();
+      setChatId(newId);
       setMessages([
         { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
       ]);
+      window.history.pushState({}, '', '/chatbot');
+    };
+
+    const handleOpenChat = (e: any) => {
+      if (e.detail?.id) {
+        loadChatById(e.detail.id);
+      }
+    };
+
+    const handleThemeChange = (e: any) => {
+      const mode = e.detail?.mode || localStorage.getItem("sarla_theme_mode") || "light";
+      setThemeMode(mode);
     };
 
     window.addEventListener("storage", handleStorage);
+    window.addEventListener("sarla_theme_changed", handleThemeChange);
     window.addEventListener("sarla_new_chat", handleNewChat);
+    window.addEventListener("sarla_open_chat", handleOpenChat);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("sarla_theme_changed", handleThemeChange);
       window.removeEventListener("sarla_new_chat", handleNewChat);
+      window.removeEventListener("sarla_open_chat", handleOpenChat);
       stopSpeaking();
     };
-  }, []);
+  }, [searchParams, loadChatById]);
+
+  // Sync when URL query parameter ?id= changes
+  useEffect(() => {
+    if (urlChatId) {
+      loadChatById(urlChatId);
+    } else {
+      if (!chatId) setChatId(Date.now().toString());
+    }
+  }, [urlChatId, loadChatById]);
+
+  const saveToHistory = (id: string, msgs: Message[]) => {
+    const firstUserMsg = msgs.find(m => m.role === "user");
+    if (!firstUserMsg) return;
+    
+    const title = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? "..." : "");
+    const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+    let history = [];
+    try { history = JSON.parse(historyStr); } catch(e) {}
+    
+    const targetId = String(id || Date.now().toString());
+    const existingIdx = history.findIndex((h: any) => String(h.id) === targetId);
+    if (existingIdx >= 0) {
+      history[existingIdx].messages = msgs;
+      history[existingIdx].updatedAt = Date.now();
+    } else {
+      history.unshift({
+        id: targetId,
+        title,
+        messages: msgs,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+    localStorage.setItem("sarla_chat_history", JSON.stringify(history));
+    window.dispatchEvent(new CustomEvent("sarla_history_updated"));
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -279,11 +372,19 @@ export default function ChatbotPage() {
       } catch (e) {}
     }
 
+    const activeChatId = chatId || Date.now().toString();
+    if (!chatId) {
+      setChatId(activeChatId);
+      window.history.replaceState({}, '', `/chatbot?id=${activeChatId}`);
+    }
+
     const userMessage: Message = { id: Date.now().toString(), role: "user", text: input };
-    setMessages(prev => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     setInput("");
     setIsLoading(true);
     stopSpeaking();
+    saveToHistory(activeChatId, newMessages);
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
@@ -307,7 +408,9 @@ export default function ChatbotPage() {
         text: responseText 
       };
       
-      setMessages(prev => [...prev, sarlaMessage]);
+      const updatedMessages = [...newMessages, sarlaMessage];
+      setMessages(updatedMessages);
+      saveToHistory(activeChatId, updatedMessages);
 
       // Play audio response via in-memory stream if voice enabled
       if (isVoiceEnabled) {
@@ -334,123 +437,98 @@ export default function ChatbotPage() {
     }
   };
 
-  const floatingHeartElements = [
-    { id: 1, left: "10%", size: "18px", delay: "0s", duration: "7s", emoji: "💕" },
-    { id: 2, left: "25%", size: "24px", delay: "2s", duration: "9s", emoji: "💖" },
-    { id: 3, left: "40%", size: "16px", delay: "4s", duration: "6s", emoji: "💗" },
-    { id: 4, left: "55%", size: "22px", delay: "1s", duration: "8s", emoji: "❤️" },
-    { id: 5, left: "70%", size: "20px", delay: "3s", duration: "7.5s", emoji: "💓" },
-    { id: 6, left: "85%", size: "26px", delay: "5s", duration: "9.5s", emoji: "🥰" },
-  ];
+
+
+  const getUserBubbleGradient = () => {
+    switch (themeMode) {
+      case "love":
+        return "bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 text-white shadow-md shadow-pink-500/25";
+      case "dark":
+      case "dark_blue":
+        return "bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white shadow-md shadow-cyan-500/25";
+      case "light":
+      default:
+        return "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/25";
+    }
+  };
+
+  const getSendButtonGradient = () => {
+    switch (themeMode) {
+      case "love":
+        return "bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 shadow-pink-500/25";
+      case "dark":
+      case "dark_blue":
+        return "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 shadow-cyan-500/25";
+      case "light":
+      default:
+        return "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-indigo-500/25";
+    }
+  };
 
   return (
-    <div className={`flex-1 flex flex-col h-full min-h-0 relative overflow-hidden p-2 sm:p-4 md:p-6 ${themeMode === "love" ? "love-wave-bg" : "bg-transparent"}`}>
-      
-      {/* Love Theme Special Background Visuals */}
-      {themeMode === "love" && (
-        <>
-          <div className="absolute right-0 top-0 bottom-0 w-full md:w-1/2 pointer-events-none z-0 overflow-hidden opacity-20 transition-all duration-700">
-            <img 
-              src="/sarla_partner.jpg" 
-              alt="Sarla Partner" 
-              className="w-full h-full object-cover object-center filter contrast-125 brightness-110" 
-              style={{
-                maskImage: "linear-gradient(to left, rgba(0,0,0,1) 20%, transparent 100%)",
-                WebkitMaskImage: "linear-gradient(to left, rgba(0,0,0,1) 20%, transparent 100%)"
-              }}
-            />
-          </div>
-
-          {floatingHeartElements.map((h) => (
-            <span
-              key={h.id}
-              className="floating-heart"
-              style={{
-                left: h.left,
-                fontSize: h.size,
-                animationDelay: h.delay,
-                animationDuration: h.duration,
-              }}
-            >
-              {h.emoji}
-            </span>
-          ))}
-        </>
-      )}
+    <div className="flex-1 flex flex-col h-full min-h-0 relative overflow-hidden p-2 sm:p-4 md:p-6 bg-transparent text-[var(--theme-text-primary)] font-sans">
 
       {/* Header */}
-      <header className="glass rounded-2xl p-2.5 sm:p-4 flex items-center justify-between mb-2 sm:mb-4 animate-fade-in z-10 border border-white/10 relative shrink-0">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          {/* Mobile Hamburger Drawer Trigger */}
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_mobile_sidebar"))}
-            className="md:hidden p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer shrink-0"
-            title="Open Navigation Menu"
-            aria-label="Open Navigation Menu"
-          >
-            <Menu size={16} />
-          </button>
-
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-pink-500 via-indigo-500 to-cyan-400 p-0.5 shadow-lg flex items-center justify-center animate-pulse-glow shrink-0">
-            <div className="w-full h-full bg-slate-950 rounded-[12px] flex items-center justify-center">
-              <Bot size={18} className="text-white" />
-            </div>
+      <header className="glass-panel rounded-2xl p-2.5 sm:p-4 flex items-center justify-between mb-2 sm:mb-4 animate-fade-in z-10 relative shrink-0 shadow-sm">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl ${getSendButtonGradient()} flex items-center justify-center shrink-0 shadow-md`}>
+            <Sparkles size={16} className="text-white" />
           </div>
           <div className="truncate">
-            <h2 className="text-sm sm:text-base md:text-lg font-bold text-white tracking-wide flex items-center gap-1.5 truncate">
+            <h2 className="text-sm sm:text-base md:text-lg font-bold text-[var(--theme-text-primary)] tracking-wide flex items-center gap-2 truncate">
               <span>Sarla AI</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             </h2>
-            <div className="text-[10px] sm:text-xs text-slate-400 flex items-center gap-1 truncate">
+            <div className="text-[10px] sm:text-xs text-[var(--theme-text-muted)] flex items-center gap-1 truncate font-medium">
               {isLoading ? (
-                <span className="text-indigo-400 font-semibold flex items-center gap-1 animate-pulse">
+                <span className="text-[var(--accent)] font-semibold flex items-center gap-1 animate-pulse">
                   <RefreshCw size={11} className="animate-spin" /> Sarla is thinking...
                 </span>
               ) : isVoiceLoading ? (
-                <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
+                <span className="text-pink-500 font-semibold flex items-center gap-1 animate-pulse">
                   <Radio size={11} className="animate-spin" /> Sarla is preparing voice...
                 </span>
               ) : isSpeaking ? (
-                <span className="text-pink-400 font-semibold flex items-center gap-1 animate-pulse">
+                <span className="text-pink-500 font-semibold flex items-center gap-1 animate-pulse">
                   <span className="flex items-center gap-0.5 h-3">
-                    <span className="w-0.5 bg-pink-400 animate-sound-wave-1 rounded"></span>
-                    <span className="w-0.5 bg-pink-400 animate-sound-wave-2 rounded"></span>
-                    <span className="w-0.5 bg-pink-400 animate-sound-wave-3 rounded"></span>
+                    <span className="w-0.5 bg-pink-500 animate-sound-wave-1 rounded"></span>
+                    <span className="w-0.5 bg-pink-500 animate-sound-wave-2 rounded"></span>
+                    <span className="w-0.5 bg-pink-500 animate-sound-wave-3 rounded"></span>
                   </span>
                   <span>Sarala is speaking...</span>
                 </span>
               ) : (
-                <span className="text-slate-400">Aapki AI Dost</span>
+                <span>Aapki AI Dost</span>
               )}
             </div>
           </div>
         </div>
 
         {/* Action Controls: Live Mode & Voice Toggle */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_live"))}
-            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-full bg-gradient-to-r from-pink-500/20 to-indigo-500/20 border border-pink-500/50 text-pink-300 hover:text-white text-xs font-semibold transition-all shadow-md cursor-pointer animate-pulse-glow"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-button text-[var(--theme-text-primary)] text-xs font-semibold transition-all shadow-2xs cursor-pointer"
             title="Start Live 3D Video Call"
           >
-            <Video size={13} className="text-pink-400" />
-            <span className="text-[11px] sm:text-xs font-bold">Live 3D</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+            <Video size={14} className="text-[var(--accent)]" />
+            <span className="hidden sm:inline">Live 3D</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse"></span>
           </button>
 
           <button
             onClick={toggleVoiceMode}
-            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
               isVoiceEnabled 
-                ? "bg-pink-500/20 border-pink-500/50 text-pink-300 hover:bg-pink-500/30" 
-                : "bg-slate-800/60 border-white/10 text-slate-400 hover:text-white"
+                ? "bg-[var(--accent)]/15 border-[var(--accent)]/30 text-[var(--theme-text-primary)] hover:bg-[var(--accent)]/25" 
+                : "glass-button text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)]"
             }`}
             title={isVoiceEnabled ? "Mute Sarla's Voice Response" : "Enable Sarla's Streaming Voice"}
           >
             {isVoiceEnabled ? (
-              <Volume2 size={13} className={isSpeaking ? "animate-pulse text-pink-400" : isVoiceLoading ? "animate-spin text-indigo-400" : ""} />
+              <Volume2 size={14} className={isSpeaking ? "animate-pulse text-[var(--accent)]" : isVoiceLoading ? "animate-spin text-[var(--accent)]" : "text-[var(--accent)]"} />
             ) : (
-              <VolumeX size={13} />
+              <VolumeX size={14} />
             )}
             <span className="hidden sm:inline text-[11px]">{isVoiceEnabled ? "Voice ON" : "Voice OFF"}</span>
           </button>
@@ -458,7 +536,7 @@ export default function ChatbotPage() {
           {isSpeaking && (
             <button
               onClick={stopSpeaking}
-              className="p-1.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 transition-all text-xs"
+              className="p-1.5 rounded-full bg-red-500/15 hover:bg-red-500/25 text-red-500 border border-red-500/30 transition-all text-xs"
               title="Stop Speaking"
             >
               <Square size={13} className="fill-current" />
@@ -468,26 +546,26 @@ export default function ChatbotPage() {
       </header>
 
       {/* Chat Messages Scroll Container */}
-      <div className="flex-1 overflow-y-auto pr-1 sm:pr-2 custom-scrollbar flex flex-col gap-4 animate-fade-in pb-3 z-10 relative min-h-0">
+      <div className="flex-1 overflow-y-auto px-1 sm:px-2 pr-1 sm:pr-2 custom-scrollbar flex flex-col gap-3 sm:gap-4 animate-fade-in pb-3 z-10 relative min-h-0">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} w-full`}>
-            <div className={`max-w-[88%] sm:max-w-[80%] md:max-w-[72%] p-3.5 sm:p-4 rounded-2xl relative ${
+            <div className={`max-w-[92%] sm:max-w-[80%] md:max-w-[72%] p-3.5 sm:p-4 rounded-2xl relative ${
               msg.role === "user" 
-                ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-none shadow-lg shadow-indigo-500/10" 
-                : "glass-panel text-slate-100 rounded-bl-none border border-white/10"
+                ? `${getUserBubbleGradient()} rounded-br-xs` 
+                : "glass-card text-[var(--theme-text-primary)] rounded-2xl rounded-bl-xs shadow-md"
             }`}>
-              <p className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm break-words">{msg.text}</p>
+              <p className="whitespace-pre-wrap leading-relaxed text-sm sm:text-[15px] font-normal break-words">{msg.text}</p>
               
-              {/* Speaker Re-play inside bubble (Zero horizontal overflow) */}
+              {/* Speaker Re-play inside bubble */}
               {msg.role === "sarla" && (
-                <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400">
-                  <span className="text-[10px] text-slate-500 font-mono">Sarala AI</span>
+                <div className="mt-2.5 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px] text-[var(--theme-text-muted)] font-medium">
+                  <span className="text-[10px] text-[var(--theme-text-muted)] font-mono">Sarala AI</span>
                   <button
                     onClick={() => speakText(msg.text)}
-                    className="p-1 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-all flex items-center gap-1 cursor-pointer text-[10px]"
+                    className="p-1 px-2.5 min-h-[30px] rounded-lg glass-button text-[var(--theme-text-primary)] active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer text-[10px]"
                     title="Listen in Sarla's Voice"
                   >
-                    <Volume2 size={12} className="text-pink-400" />
+                    <Volume2 size={12} className="text-[var(--accent)]" />
                     <span>Listen</span>
                   </button>
                 </div>
@@ -499,66 +577,84 @@ export default function ChatbotPage() {
         {/* Loading Indicator */}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="glass-panel p-3.5 rounded-2xl rounded-bl-none border border-white/10 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" style={{ animationDelay: "0ms" }}></div>
-              <div className="w-2 h-2 rounded-full bg-pink-400 animate-pulse" style={{ animationDelay: "150ms" }}></div>
-              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "300ms" }}></div>
-              <span className="text-xs text-slate-400 ml-1">Sarala is thinking...</span>
+            <div className="glass-card p-3 sm:p-3.5 rounded-2xl rounded-bl-none flex items-center gap-2 shadow-xs">
+              <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" style={{ animationDelay: "0ms" }}></div>
+              <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" style={{ animationDelay: "150ms" }}></div>
+              <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" style={{ animationDelay: "300ms" }}></div>
+              <span className="text-xs text-[var(--theme-text-secondary)] font-medium ml-1">Sarala is thinking...</span>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pinned Bottom Chat Composer (Safe area units & Virtual Keyboard safe) */}
-      <div className="pt-2 pb-safe animate-fade-in z-10 relative shrink-0">
-        <div className="glass rounded-full p-1.5 sm:p-2 flex items-center gap-1.5 sm:gap-2 border border-white/15 bg-black/70 shadow-2xl">
-          <button 
-            onClick={toggleRecording}
-            className={`p-2.5 sm:p-3 rounded-full transition-all shrink-0 cursor-pointer ${
-              isRecording 
-                ? "bg-red-500 text-white animate-bounce shadow-lg shadow-red-500/50" 
-                : "hover:bg-white/10 text-slate-400 hover:text-white"
-            }`}
-            title={isRecording ? "Listening... Click to stop" : "Click to Speak (Voice Input)"}
-          >
-            {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
-          </button>
-          
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 sm:p-3 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-all shrink-0 cursor-pointer"
-            title="Upload PDF, Text, or Image"
-          >
-            <Paperclip size={18} />
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            className="hidden"
-            accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg"
-          />
+      {/* Pinned Bottom Chat Composer */}
+      <div className="pt-1.5 sm:pt-2 pb-safe animate-fade-in z-10 relative shrink-0">
+        <div className="w-full max-w-4xl mx-auto glass-panel p-1.5 sm:p-2.5 rounded-2xl flex flex-col shadow-[0_15px_40px_-5px_rgba(0,0,0,0.15)]">
+          <div className="flex items-center px-1 sm:px-2 py-1 sm:py-1.5">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 min-w-[36px] min-h-[36px] flex items-center justify-center text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] active:scale-95 transition-all cursor-pointer"
+              title="Upload File"
+            >
+              <Paperclip size={19} />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+              accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg"
+            />
 
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isRecording ? "Listening to your voice..." : "Ask Sarla anything or speak..."}
-            className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none px-2 text-xs sm:text-sm min-w-0"
-          />
-          
-          <button 
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="p-2.5 sm:p-3 bg-gradient-to-tr from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 disabled:opacity-40 text-white rounded-full transition-all shadow-md shadow-indigo-500/25 shrink-0 cursor-pointer"
-            title="Send Message"
-          >
-            <Send size={16} />
-          </button>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isRecording ? "Listening..." : "Ask Sarla anything..."}
+              className="flex-1 bg-transparent border-none outline-none px-2 sm:px-3 text-[var(--theme-text-primary)] placeholder-[var(--theme-text-muted)] text-sm font-normal min-w-0"
+            />
+            
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button 
+                onClick={toggleRecording}
+                className={`flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition-all cursor-pointer active:scale-95 ${
+                  isRecording 
+                    ? "bg-red-500/20 text-red-500 border border-red-500/50 animate-pulse" 
+                    : "glass-button text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)]"
+                }`}
+                title="Voice Input"
+              >
+                {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+              <button 
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading}
+                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${getSendButtonGradient()} disabled:opacity-40 text-white flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer`}
+                title="Send"
+              >
+                <Send size={15} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatbotPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-full w-full items-center justify-center bg-black/40">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+          <p className="text-xs text-slate-400">Loading conversation...</p>
+        </div>
+      </div>
+    }>
+      <ChatbotContent />
+    </Suspense>
   );
 }

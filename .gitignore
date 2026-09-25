@@ -8,6 +8,9 @@ frontend/.env.local
 frontend/.env*.local
 users.json
 backend/users.json
+memory.json
+/learning/
+*.tsbuildinfo
 
 # Python
 __pycache__/

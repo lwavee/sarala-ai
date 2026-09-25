@@ -22,4 +22,3 @@ gradio_client
 pydub
 PyPDF2
 Pillow
-python-multipart

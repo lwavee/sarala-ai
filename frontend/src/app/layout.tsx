@@ -5,11 +5,12 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import {
-  MessageSquare, FolderKanban, Settings, Plus, Sparkles, Heart,
+  MessageSquare, Settings, Plus, Sparkles, Heart,
   Shield, BookOpen, X, Check, Database, Clock, LogOut, UserCheck, Lock, Mail, Key, User,
-  Video, Radio, Mic, Menu, Volume2, ArrowRight
+  Video, Radio, Menu, ArrowRight
 } from "lucide-react";
 import LiveModeModal from "@/components/live/LiveModeModal";
+import AppShell from "@/components/layout/AppShell";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -103,13 +104,16 @@ export default function RootLayout({
   }, []);
 
   const handleModeChange = (mode: string) => {
-    if (mode === "love" && !userSession?.is_naveen) {
-      alert("Love Mode is unlocked exclusively for Naveen (avee)!");
-      return;
-    }
     setThemeMode(mode);
     localStorage.setItem("sarla_theme_mode", mode);
-    document.body.className = `${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${mode}`;
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
+      document.documentElement.classList.add(`mode-${mode}`);
+      document.body.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
+      document.body.classList.add(`mode-${mode}`);
+    }
+    window.dispatchEvent(new CustomEvent("sarla_theme_changed", { detail: { mode } }));
+    window.dispatchEvent(new Event("storage"));
   };
 
   const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPassword?: string) => {
@@ -212,27 +216,25 @@ export default function RootLayout({
 
   const themes = [
     {
-      id: "dark",
-      name: "Dark Mode (Developer)",
-      icon: Shield,
-      color: "from-cyan-500 to-blue-600",
-      desc: "Senior Full-Stack Developer, Cybersecurity Expert & Digital Marketer"
+      id: "light",
+      name: "Light Mode",
+      icon: Sparkles,
+      color: "from-amber-400 via-indigo-500 to-purple-600",
+      desc: "Daylight interior frosted glass theme with light-bg.png."
     },
     {
       id: "love",
       name: "Love Mode (Partner)",
       icon: Heart,
       color: "from-pink-500 to-rose-600",
-      desc: userSession?.is_naveen
-        ? "Loving Real-Life Partner & Companion (Exclusive for Naveen)"
-        : "🔒 Unlocked Exclusively for Naveen (avee)"
+      desc: "Loving Partner & Companion mode with love-bg.png and warm rose ambiance."
     },
     {
-      id: "light",
-      name: "Light Mode (Competitor)",
-      icon: Sparkles,
-      color: "from-amber-400 to-indigo-600",
-      desc: "Rival Competitor & Sharp Learning Challenger"
+      id: "dark",
+      name: "Dark Mode (Developer)",
+      icon: Shield,
+      color: "from-cyan-500 to-blue-600",
+      desc: "Senior Full-Stack Developer & Obsidian dark theme with bark-bg.png."
     },
     {
       id: "dark_blue",
@@ -249,404 +251,10 @@ export default function RootLayout({
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${themeMode}`}>
-
-        {/* ── Mobile Top Bar (visible on phones only) ── */}
-        <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-white/10 bg-black/70 backdrop-blur-xl shrink-0 z-30 pt-safe">
-          {/* Brand */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsMobileSidebarOpen(true)}
-              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all cursor-pointer mr-1"
-              title="Open Navigation Menu"
-              aria-label="Open Navigation Menu"
-            >
-              <Menu size={18} />
-            </button>
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg">
-              <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-                <Sparkles size={14} className="text-pink-400" />
-              </div>
-            </div>
-            <span className="text-sm font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
-              SARLA AI
-            </span>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex items-center gap-1">
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className="p-2 rounded-xl text-pink-400 hover:bg-pink-500/20 transition-all"
-                title="Admin Dashboard & Training Mode"
-              >
-                <Shield size={18} />
-              </Link>
-            )}
-            <button
-              onClick={() => setIsLiveModeOpen(true)}
-              className="p-2 rounded-xl text-pink-400 hover:bg-pink-500/20 transition-all"
-              title="Live 3D Mode"
-            >
-              <Radio size={18} className="animate-pulse" />
-            </button>
-            <button
-              onClick={handleCreateNewChat}
-              className="p-2 rounded-xl text-indigo-400 hover:bg-indigo-500/20 transition-all"
-              title="New Chat"
-            >
-              <Plus size={18} />
-            </button>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-xl text-slate-400 hover:bg-white/10 hover:text-white transition-all"
-              title="Settings & Persona Modes"
-            >
-              <Settings size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* ── Desktop Sidebar Navigation (Laptop & Desktop) ── */}
-        <aside suppressHydrationWarning className="w-64 border-r border-white/10 flex-col justify-between hidden md:flex transition-all bg-black/40 backdrop-blur-xl z-20 shrink-0">
-          <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
-            {/* Sarla AI Brand Logo */}
-            <div className="flex items-center gap-3 px-2 mb-6">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg animate-pulse-glow">
-                <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                  <Sparkles size={18} className="text-pink-400" />
-                </div>
-              </div>
-              <h1 className="text-xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
-                SARLA AI
-              </h1>
-            </div>
-
-            {/* New Chat Button */}
-            <button
-              onClick={handleCreateNewChat}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium mb-6 transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/25 cursor-pointer"
-            >
-              <Plus size={20} />
-              <span>New chat</span>
-            </button>
-
-            {/* Nav Menu */}
-            <nav className="space-y-1 mb-6">
-              {/* Admin & Training Mode Link */}
-              {isAdmin && (
-                <Link
-                  href="/admin"
-                  className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/40 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-2 cursor-pointer shadow-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <Shield size={18} className="text-pink-400" />
-                    <span>Admin & Training</span>
-                  </div>
-                  <span className="text-[10px] bg-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    ADMIN
-                  </span>
-                </Link>
-              )}
-
-              <button
-                onClick={() => setIsLiveModeOpen(true)}
-                className="relative overflow-hidden w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer shadow-[0_0_15px_rgba(236,72,153,0.15)]"
-              >
-                {/* Pulsing overlay */}
-                <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 via-transparent to-cyan-500/10 animate-pulse blur-md"></div>
-
-                <div className="relative z-10 flex items-center gap-3">
-                  <Radio size={18} className="text-pink-400 animate-pulse drop-shadow-[0_0_5px_rgba(236,72,153,0.8)]" />
-                  <span className="drop-shadow-md">Live 3D Mode</span>
-                </div>
-                <span className="relative z-10 text-[10px] bg-gradient-to-r from-red-600 to-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)] border border-white/20">
-                  LIVE
-                </span>
-              </button>
-
-              <Link
-                href="/chatbot"
-                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-              >
-                <MessageSquare size={18} className="text-indigo-400" />
-                <span>Chat</span>
-              </Link>
-
-              <Link
-                href="/voice-test"
-                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-              >
-                <Volume2 size={18} className="text-violet-400" />
-                <span>Voice Studio</span>
-              </Link>
-
-              <Link
-                href="/voice-benchmark"
-                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-              >
-                <Mic size={18} className="text-pink-400" />
-                <span>Voice Benchmark</span>
-              </Link>
-
-              <Link
-                href="/project"
-                className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-              >
-                <FolderKanban size={18} className="text-amber-400" />
-                <span>Projects</span>
-              </Link>
-            </nav>
-
-            {/* Recents Chat History List */}
-            <div className="pt-4 border-t border-white/10">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">Recents</p>
-              <div className="space-y-1">
-                {chatThreads.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => {
-                      setActiveThreadId(t.id);
-                      window.dispatchEvent(new CustomEvent("sarla_switch_thread", { detail: { threadId: t.id } }));
-                    }}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${activeThreadId === t.id
-                        ? "bg-white/15 text-white font-semibold"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-                      }`}
-                  >
-                    <MessageSquare size={14} className="shrink-0 text-slate-400" />
-                    <span className="truncate">{t.title}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* User Profile Footer */}
-          <div className="p-4 border-t border-white/10 flex items-center justify-between">
-            <div className="flex items-center gap-3 truncate">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm shadow-md shrink-0">
-                {userInitials}
-              </div>
-              <div className="truncate max-w-[100px]">
-                <p className="text-sm font-semibold text-white leading-tight truncate">{userDisplayName}</p>
-                <p className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                  <UserCheck size={10} /> {isAdmin ? "Admin (Owner)" : "User"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 rounded-xl hover:bg-white/10 transition-all text-slate-400 hover:text-white"
-                title="Settings & Persona Modes"
-              >
-                <Settings size={18} />
-              </button>
-              <button
-                onClick={handleLogout}
-                className="p-2 rounded-xl hover:bg-red-500/20 transition-all text-slate-400 hover:text-red-400"
-                title="Logout"
-              >
-                <LogOut size={18} />
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        {/* ── Mobile Slide-Over Sidebar Drawer Popup ── */}
-        {isMobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 md:hidden animate-fade-in">
-            {/* Backdrop Blur Overlay */}
-            <div
-              className="fixed inset-0 bg-black/80 backdrop-blur-md transition-opacity"
-              onClick={() => setIsMobileSidebarOpen(false)}
-            />
-
-            {/* Slide Drawer Content from Left */}
-            <aside
-              className="fixed top-0 left-0 bottom-0 w-72 max-w-[85vw] bg-slate-950/95 backdrop-blur-2xl border-r border-white/15 flex flex-col justify-between shadow-2xl z-50 animate-slide-in-left select-none pb-safe pt-safe"
-            >
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
-                {/* Brand Logo & Close Button */}
-                <div className="flex items-center justify-between px-1 mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-pink-500 to-amber-400 p-0.5 flex items-center justify-center shadow-lg animate-pulse-glow">
-                      <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                        <Sparkles size={18} className="text-pink-400" />
-                      </div>
-                    </div>
-                    <h1 className="text-xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-indigo-400 to-cyan-400">
-                      SARLA AI
-                    </h1>
-                  </div>
-                  <button
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-                    title="Close Menu"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {/* New Chat Button */}
-                <button
-                  onClick={() => {
-                    handleCreateNewChat();
-                    setIsMobileSidebarOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium mb-6 transition-all shadow-lg shadow-indigo-500/25 cursor-pointer"
-                >
-                  <Plus size={20} />
-                  <span>New chat</span>
-                </button>
-
-                {/* Nav Menu */}
-                <nav className="space-y-1 mb-6">
-                  {isAdmin && (
-                    <Link
-                      href="/admin"
-                      onClick={() => setIsMobileSidebarOpen(false)}
-                      className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/40 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-2 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Shield size={18} className="text-pink-400" />
-                        <span>Admin & Training</span>
-                      </div>
-                      <span className="text-[10px] bg-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        ADMIN
-                      </span>
-                    </Link>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setIsLiveModeOpen(true);
-                      setIsMobileSidebarOpen(false);
-                    }}
-                    className="relative overflow-hidden w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-cyan-500/20 hover:from-pink-500/30 hover:to-indigo-500/30 border border-pink-500/30 transition-all font-semibold text-sm text-pink-300 hover:text-white group mb-1 cursor-pointer shadow-[0_0_15px_rgba(236,72,153,0.15)]"
-                  >
-                    {/* Pulsing overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 via-transparent to-cyan-500/10 animate-pulse blur-md"></div>
-
-                    <div className="relative z-10 flex items-center gap-3">
-                      <Radio size={18} className="text-pink-400 animate-pulse drop-shadow-[0_0_5px_rgba(236,72,153,0.8)]" />
-                      <span className="drop-shadow-md">Live 3D Mode</span>
-                    </div>
-                    <span className="relative z-10 text-[10px] bg-gradient-to-r from-red-600 to-pink-500 text-white font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)] border border-white/20">
-                      LIVE
-                    </span>
-                  </button>
-
-                  <Link
-                    href="/chatbot"
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-                  >
-                    <MessageSquare size={18} className="text-indigo-400" />
-                    <span>Chat</span>
-                  </Link>
-
-                  <Link
-                    href="/voice-test"
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-                  >
-                    <Volume2 size={18} className="text-violet-400" />
-                    <span>Voice Studio</span>
-                  </Link>
-
-                  <Link
-                    href="/voice-benchmark"
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-                  >
-                    <Mic size={18} className="text-pink-400" />
-                    <span>Voice Benchmark</span>
-                  </Link>
-
-                  <Link
-                    href="/project"
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-white/10 transition-all font-medium text-sm text-slate-300 hover:text-white"
-                  >
-                    <FolderKanban size={18} className="text-amber-400" />
-                    <span>Projects</span>
-                  </Link>
-                </nav>
-
-                {/* Recents Chat History List */}
-                <div className="pt-4 border-t border-white/10">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">Recents</p>
-                  <div className="space-y-1">
-                    {chatThreads.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => {
-                          setActiveThreadId(t.id);
-                          window.dispatchEvent(new CustomEvent("sarla_switch_thread", { detail: { threadId: t.id } }));
-                          setIsMobileSidebarOpen(false);
-                        }}
-                        className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${activeThreadId === t.id
-                            ? "bg-white/15 text-white font-semibold"
-                            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-                          }`}
-                      >
-                        <MessageSquare size={14} className="shrink-0 text-slate-400" />
-                        <span className="truncate">{t.title}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* User Profile Footer */}
-              <div className="p-4 border-t border-white/10 flex items-center justify-between bg-black/40">
-                <div className="flex items-center gap-3 truncate">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm shadow-md shrink-0">
-                    {userInitials}
-                  </div>
-                  <div className="truncate max-w-[110px]">
-                    <p className="text-sm font-semibold text-white leading-tight truncate">{userDisplayName}</p>
-                    <p className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-                      <UserCheck size={10} /> {isAdmin ? "Admin (Owner)" : "User"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setIsSettingsOpen(true);
-                      setIsMobileSidebarOpen(false);
-                    }}
-                    className="p-2 rounded-xl hover:bg-white/10 transition-all text-slate-400 hover:text-white"
-                    title="Settings & Persona Modes"
-                  >
-                    <Settings size={18} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleLogout();
-                      setIsMobileSidebarOpen(false);
-                    }}
-                    className="p-2 rounded-xl hover:bg-red-500/20 transition-all text-slate-400 hover:text-red-400"
-                    title="Logout"
-                  >
-                    <LogOut size={18} />
-                  </button>
-                </div>
-              </div>
-            </aside>
-          </div>
-        )}
-
-        {/* ── Main Content Viewport ── */}
-        <main suppressHydrationWarning className="flex-1 flex flex-col h-full min-h-0 relative overflow-hidden">
+      <body suppressHydrationWarning className={`${inter.className} bg-black`}>
+        <AppShell>
           {children}
-        </main>
+        </AppShell>
 
         {/* ── Authentication Modal Popup ── */}
         {isAuthOpen && (
@@ -880,13 +488,30 @@ export default function RootLayout({
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-end">
-                <button
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <Link
+                  href="/admin"
                   onClick={() => setIsSettingsOpen(false)}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-medium text-center flex items-center justify-center gap-2 transition-all"
                 >
-                  Done
-                </button>
+                  <BookOpen size={14} className="text-cyan-400" />
+                  <span>Admin Learning & Training</span>
+                </Link>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Link
+                    href="/settings"
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="flex-1 sm:flex-initial px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-medium text-center transition-all"
+                  >
+                    All Settings
+                  </Link>
+                  <button
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             </div>
           </div>
