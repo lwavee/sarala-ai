@@ -418,7 +418,7 @@ function ChatbotContent() {
       }
     } catch (error) {
       console.error(error);
-      const errMsg = "Maaf kijiye, backend se connection me problem hai. 😔";
+      const errMsg = "Maaf kijiye, backend se connect nahi ho paya. Render free server sleep mode se wake up ho raha ho sakta hai (~50 sec lagte hain). Kripya 10-15 seconds me dobara message bhejein! ⏳";
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: "sarla",
