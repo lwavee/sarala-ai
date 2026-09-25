@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException, Header, Body, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -128,11 +128,9 @@ def classify_emotion(text: str) -> tuple:
 # ── General Routes ───────────────────────────────────────────────────────────
 @app.get("/")
 async def index():
-    """Serve the main chat UI if static index exists."""
-    index_path = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"name": "Sarala AI", "version": "2.0.0", "status": "running"}
+    """Redirect visitors from backend Render URL directly to the official modern Vercel UI."""
+    return RedirectResponse(url="https://sarala-ai-pi.vercel.app/")
+
 
 @app.get("/health")
 async def health():
