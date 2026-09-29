@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { EmotionController, EmotionType } from "./avatar/EmotionController";
+import { normalizeModeId, getSavedMode } from "@/lib/modes";
 
 export type AvatarState = "idle" | "listening" | "thinking" | "speaking" | "error";
 export type ConnectionStatus = "connected" | "connecting" | "offline";
@@ -14,7 +15,7 @@ interface UseLiveSessionOptions {
 }
 
 export function useLiveSession({
-  themeMode = "dark",
+  themeMode,
   userName = "",
   userNickname = "",
 }: UseLiveSessionOptions = {}) {
@@ -38,52 +39,6 @@ export function useLiveSession({
   const animFrameRef = useRef<number | null>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isComponentMounted = useRef<boolean>(true);
-
-  // Check health status on mount
-  useEffect(() => {
-    isComponentMounted.current = true;
-    const checkBackend = async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
-        const res = await fetch(`${apiUrl}/health`, { method: "GET" });
-        if (res.ok) {
-          setConnectionStatus("connected");
-        } else {
-          setConnectionStatus("offline");
-        }
-      } catch (err) {
-        setConnectionStatus("offline");
-      }
-    };
-    checkBackend();
-
-    // Warm up speech synthesis voices
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.getVoices();
-    }
-
-    return () => {
-      isComponentMounted.current = false;
-      cleanupLiveSession();
-    };
-  }, []);
-
-  // Clean text for TTS (strips all markdown symbols, emojis, and hashtags)
-  const cleanTextForSpeech = (rawText: string) => {
-    return rawText
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
-      .replace(/^#+\s+/gm, "")
-      .replace(/###\s*/g, "")
-      .replace(/####\s*/g, "")
-      .replace(/##\s*/g, "")
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/\*(.*?)\*/g, "$1")
-      .replace(/#(.*?)\n/g, "$1")
-      .replace(/`(.*?)`/g, "$1")
-      .replace(/```[\s\S]*?```/g, "")
-      .trim();
-  };
-
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   // Full session cleanup
@@ -103,7 +58,7 @@ export function useLiveSession({
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.stop();
-      } catch (e) {}
+      } catch (_e) {}
       recognitionRef.current = null;
     }
 
@@ -115,13 +70,58 @@ export function useLiveSession({
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
       try {
         audioCtxRef.current.close();
-      } catch (e) {}
+      } catch (_e) {}
       audioCtxRef.current = null;
     }
 
     setAudioAmplitude(0);
     setAvatarState("idle");
   }, []);
+
+  // Check health status on mount
+  useEffect(() => {
+    isComponentMounted.current = true;
+    const checkBackend = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        const res = await fetch(`${apiUrl}/health`, { method: "GET" });
+        if (res.ok) {
+          setConnectionStatus("connected");
+        } else {
+          setConnectionStatus("offline");
+        }
+      } catch (_err) {
+        setConnectionStatus("offline");
+      }
+    };
+    checkBackend();
+
+    // Warm up speech synthesis voices
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.getVoices();
+    }
+
+    return () => {
+      isComponentMounted.current = false;
+      cleanupLiveSession();
+    };
+  }, [cleanupLiveSession]);
+
+  // Clean text for TTS (strips all markdown symbols, emojis, and hashtags)
+  const cleanTextForSpeech = (rawText: string) => {
+    return rawText
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+      .replace(/^#+\s+/gm, "")
+      .replace(/###\s*/g, "")
+      .replace(/####\s*/g, "")
+      .replace(/##\s*/g, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/#(.*?)\n/g, "$1")
+      .replace(/`(.*?)`/g, "$1")
+      .replace(/```[\s\S]*?```/g, "")
+      .trim();
+  };
 
   // Stop active speaking (for user interruption)
   const stopSpeaking = useCallback(() => {
@@ -310,7 +310,7 @@ export function useLiveSession({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
-            theme_mode: themeMode,
+            theme_mode: normalizeModeId(themeMode || getSavedMode()),
             user_name: userName,
             user_nickname: userNickname,
             is_live: true,

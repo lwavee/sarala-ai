@@ -82,7 +82,7 @@ class SignupRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    theme_mode: str = "dark"
+    theme_mode: str = "normal"
     user_name: str = ""
     user_nickname: str = ""
     is_live: bool = False

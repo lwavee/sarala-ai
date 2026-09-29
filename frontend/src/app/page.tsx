@@ -1,23 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { 
-  Search, Bell, Plus, MessageSquare, Users, PenTool, Folder, BookOpen, 
-  Settings, BarChart2, Zap, ArrowRight, Bot, Sparkles, Video, Crown, 
-  MoreVertical, FileText, BarChart, Settings as SettingsIcon, Shield,
-  Code, Megaphone, Paperclip, ChevronDown, Send, ChevronRight
+  Search, Users, PenTool, ArrowRight, Sparkles, FileText, 
+  BarChart, Settings as SettingsIcon, Code, Megaphone, 
+  Paperclip, ChevronDown, Send, ChevronRight, MessageSquare
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 export default function Home() {
-  const [mounted, setMounted] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const router = useRouter();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const handleSend = (text: string = inputValue) => {
     if (text.trim()) {

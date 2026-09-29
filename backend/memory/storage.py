@@ -35,7 +35,7 @@ class MemoryStorage:
     - Long-term personal memory: saved permanently to Supabase (fallback to memory.json)
     - Short-term chat memory: auto-deletes entries older than 24 hours
     """
-    def __init__(self, filepath="memory.json", users_filepath="users.json", max_history=10):
+    def __init__(self, filepath="memory.json", users_filepath="users.json", max_history=20):
         backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         if not os.path.isabs(filepath):
             filepath = os.path.join(backend_root, filepath)

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import LiveModeModal from "@/components/live/LiveModeModal";
 import AppShell from "@/components/layout/AppShell";
+import { ALL_MODES, getSavedMode, setSavedMode, normalizeModeId, SaralaModeId } from "@/lib/modes";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,7 +28,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [themeMode, setThemeMode] = useState<string>("dark");
+  const [themeMode, setThemeMode] = useState<SaralaModeId>(() => getSavedMode());
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isLiveModeOpen, setIsLiveModeOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -52,9 +53,8 @@ export default function RootLayout({
   const [activeThreadId, setActiveThreadId] = useState<string>("thread_default");
 
   useEffect(() => {
-    // Load theme
+    // Sync initial body class with active mode
     const savedMode = localStorage.getItem("sarla_theme_mode") || "dark";
-    setThemeMode(savedMode);
     document.body.className = `${inter.className} flex flex-col md:flex-row h-dvh max-h-dvh overflow-hidden mode-${savedMode}`;
 
     const handleOpenLive = () => setIsLiveModeOpen(true);
@@ -97,23 +97,27 @@ export default function RootLayout({
       localStorage.setItem("sarla_chat_threads", JSON.stringify(initialThreads));
     }
 
+    const handleModeUpdate = (e: any) => {
+      const mode = normalizeModeId(e.detail?.mode || getSavedMode());
+      setThemeMode(mode);
+    };
+    window.addEventListener("sarla_theme_changed", handleModeUpdate);
+    window.addEventListener("sarla_mode_changed", handleModeUpdate);
+    window.addEventListener("storage", handleModeUpdate);
+
     return () => {
       window.removeEventListener("sarla_open_live", handleOpenLive);
       window.removeEventListener("sarla_open_mobile_sidebar", handleOpenMobileSidebar);
+      window.removeEventListener("sarla_theme_changed", handleModeUpdate);
+      window.removeEventListener("sarla_mode_changed", handleModeUpdate);
+      window.removeEventListener("storage", handleModeUpdate);
     };
   }, []);
 
-  const handleModeChange = (mode: string) => {
+  const handleModeChange = (mode: SaralaModeId) => {
+    if (themeMode === mode) return;
     setThemeMode(mode);
-    localStorage.setItem("sarla_theme_mode", mode);
-    if (typeof document !== "undefined") {
-      document.documentElement.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
-      document.documentElement.classList.add(`mode-${mode}`);
-      document.body.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
-      document.body.classList.add(`mode-${mode}`);
-    }
-    window.dispatchEvent(new CustomEvent("sarla_theme_changed", { detail: { mode } }));
-    window.dispatchEvent(new Event("storage"));
+    setSavedMode(mode);
   };
 
   const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPassword?: string) => {
@@ -139,7 +143,7 @@ export default function RootLayout({
         setLoginEmail("");
         setLoginPassword("");
         if (!data.user.is_naveen && themeMode === "love") {
-          handleModeChange("dark");
+          handleModeChange("normal");
         }
       } else {
         setAuthError(data.message || "Invalid credentials");
@@ -183,7 +187,7 @@ export default function RootLayout({
         setSignupEmail("");
         setSignupPassword("");
         if (!data.user.is_naveen && themeMode === "love") {
-          handleModeChange("dark");
+          handleModeChange("normal");
         }
       } else {
         setAuthError(data.message || "Registration failed");
@@ -214,43 +218,16 @@ export default function RootLayout({
     window.dispatchEvent(new CustomEvent("sarla_new_chat", { detail: { threadId: newId } }));
   };
 
-  const themes = [
-    {
-      id: "light",
-      name: "Light Mode",
-      icon: Sparkles,
-      color: "from-amber-400 via-indigo-500 to-purple-600",
-      desc: "Daylight interior frosted glass theme with light-bg.png."
-    },
-    {
-      id: "love",
-      name: "Love Mode (Partner)",
-      icon: Heart,
-      color: "from-pink-500 to-rose-600",
-      desc: "Loving Partner & Companion mode with love-bg.png and warm rose ambiance."
-    },
-    {
-      id: "dark",
-      name: "Dark Mode (Developer)",
-      icon: Shield,
-      color: "from-cyan-500 to-blue-600",
-      desc: "Senior Full-Stack Developer & Obsidian dark theme with bark-bg.png."
-    },
-    {
-      id: "dark_blue",
-      name: "Dark Blue Mode (Vedic Wisdom)",
-      icon: BookOpen,
-      color: "from-blue-600 to-amber-500",
-      desc: "Spiritual Guidance from Geeta, Ramayana & Ancient Scriptures"
-    }
-  ];
-
   const userDisplayName = userSession?.nickname ? `${userSession.name} (${userSession.nickname})` : (userSession?.name || "Guest");
   const userInitials = userSession?.name ? userSession.name.substring(0, 2).toUpperCase() : "G";
   const isAdmin = userSession?.role === "admin" || userSession?.is_naveen || userSession?.email === "loharavee@gmail.com";
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <link rel="preload" as="image" href="/bark-bg.png" />
+        <link rel="preload" as="image" href="/love-mode-1.png" />
+      </head>
       <body suppressHydrationWarning className={`${inter.className} bg-black`}>
         <AppShell>
           {children}
@@ -439,36 +416,34 @@ export default function RootLayout({
               {/* Mode Selector Options */}
               <div className="mb-6">
                 <label className="text-sm font-semibold text-slate-300 mb-3 block">
-                  Choose Sarla AI Personality & Theme Mode:
+                  Choose Sarla AI Personality & Mode:
                 </label>
                 <div className="space-y-3">
-                  {themes.map((t) => {
-                    const IconComp = t.icon;
-                    const isSelected = themeMode === t.id;
-                    const isLoveLocked = t.id === "love" && !userSession?.is_naveen;
+                  {ALL_MODES.map((m) => {
+                    const isSelected = themeMode === m.id;
                     return (
                       <div
-                        key={t.id}
-                        onClick={() => !isLoveLocked && handleModeChange(t.id)}
-                        className={`p-4 rounded-2xl border transition-all flex items-start gap-4 ${isLoveLocked
-                            ? "opacity-50 cursor-not-allowed bg-white/5 border-white/5"
-                            : isSelected
-                              ? "bg-indigo-900/30 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.3)] cursor-pointer"
-                              : "bg-white/5 border-white/10 hover:border-white/20 cursor-pointer"
-                          }`}
+                        key={m.id}
+                        onClick={() => handleModeChange(m.id)}
+                        className={`p-4 rounded-2xl border transition-all flex items-start gap-4 cursor-pointer ${
+                          isSelected
+                            ? "bg-indigo-900/30 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.3)]"
+                            : "bg-white/5 border-white/10 hover:border-white/20"
+                        }`}
                       >
-                        <div className={`p-2.5 rounded-xl bg-gradient-to-tr ${t.color} text-white shrink-0`}>
-                          <IconComp size={20} />
+                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${m.gradient} text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-sm`}>
+                          {m.symbol}
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <h3 className="font-semibold text-white flex items-center gap-2">
-                              {t.name}
-                              {isLoveLocked && <Lock size={14} className="text-amber-400" />}
+                              <span>{m.symbol}</span>
+                              <span>{m.label}</span>
                             </h3>
                             {isSelected && <Check size={18} className="text-indigo-400" />}
                           </div>
-                          <p className="text-xs text-slate-400 mt-1">{t.desc}</p>
+                          <p className="text-xs text-indigo-300 font-medium mt-0.5">{m.tagline}</p>
+                          <p className="text-xs text-slate-400 mt-1">{m.description}</p>
                         </div>
                       </div>
                     );

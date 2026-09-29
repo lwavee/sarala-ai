@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS conversation_metadata (
 CREATE TABLE IF NOT EXISTS user_preferences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_email TEXT UNIQUE NOT NULL,
-  theme_mode TEXT DEFAULT 'dark',
+  theme_mode TEXT DEFAULT 'normal',
   voice_enabled BOOLEAN DEFAULT TRUE,
   persona_settings JSONB DEFAULT '{}',
   updated_at TIMESTAMPTZ DEFAULT NOW()

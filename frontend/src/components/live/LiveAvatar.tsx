@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { AvatarState } from "./useLiveSession";
 import SaralaAvatar3D from "./SaralaAvatar3D";
 import { EmotionType } from "./avatar/EmotionController";
@@ -18,17 +18,15 @@ export default function LiveAvatar({
   emotion = "neutral",
   onAvatarClick,
 }: LiveAvatarProps) {
-  const [hasWebGL, setHasWebGL] = useState<boolean>(true);
-
-  useEffect(() => {
+  const [hasWebGL] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
     try {
       const canvas = document.createElement("canvas");
-      const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-      setHasWebGL(Boolean(gl));
-    } catch (e) {
-      setHasWebGL(false);
+      return Boolean(canvas.getContext("webgl") || canvas.getContext("experimental-webgl"));
+    } catch {
+      return false;
     }
-  }, []);
+  });
 
   if (hasWebGL) {
     return (

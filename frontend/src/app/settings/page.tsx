@@ -4,12 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
   Settings, 
-  Shield, 
-  Heart, 
-  Sparkles, 
-  BookOpen, 
   Check, 
-  Lock, 
   User, 
   Mail, 
   Key, 
@@ -26,10 +21,21 @@ import {
   Layers,
   Sparkle
 } from "lucide-react";
+import { ALL_MODES, getSavedMode, setSavedMode, SaralaModeId } from "@/lib/modes";
 
 export default function SettingsPage() {
-  const [themeMode, setThemeMode] = useState<string>("dark");
-  const [userSession, setUserSession] = useState<any>(null);
+  const [themeMode, setThemeMode] = useState<SaralaModeId>(() => getSavedMode());
+  const [userSession, setUserSession] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const sess = localStorage.getItem("sarla_user_session");
+        return sess ? JSON.parse(sess) : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   
   // Auth Form State
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -43,11 +49,7 @@ export default function SettingsPage() {
   const [authMessage, setAuthMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    // Load theme
-    const savedMode = localStorage.getItem("sarla_theme_mode") || "dark";
-    setThemeMode(savedMode);
-
-    // Load user session
+    // Load user session listener
     const loadSession = () => {
       try {
         const sess = localStorage.getItem("sarla_user_session");
@@ -63,7 +65,7 @@ export default function SettingsPage() {
     loadSession();
 
     const handleStorage = () => {
-      const mode = localStorage.getItem("sarla_theme_mode") || "dark";
+      const mode = getSavedMode();
       setThemeMode(mode);
       loadSession();
     };
@@ -76,17 +78,9 @@ export default function SettingsPage() {
     };
   }, []);
 
-  const handleModeChange = (modeId: string) => {
+  const handleModeChange = (modeId: SaralaModeId) => {
     setThemeMode(modeId);
-    localStorage.setItem("sarla_theme_mode", modeId);
-    if (typeof document !== "undefined") {
-      document.documentElement.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
-      document.documentElement.classList.add(`mode-${modeId}`);
-      document.body.classList.remove("mode-light", "mode-love", "mode-dark", "mode-dark_blue");
-      document.body.classList.add(`mode-${modeId}`);
-    }
-    window.dispatchEvent(new CustomEvent("sarla_theme_changed", { detail: { mode: modeId } }));
-    window.dispatchEvent(new Event("storage"));
+    setSavedMode(modeId);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -175,37 +169,6 @@ export default function SettingsPage() {
     setAuthMessage({ type: "success", text: "Logged out successfully." });
   };
 
-  const themes = [
-    {
-      id: "light",
-      name: "Light Mode",
-      icon: Sparkles,
-      color: "from-amber-400 via-indigo-500 to-purple-600",
-      desc: "Daylight interior frosted glass theme with light-bg.png."
-    },
-    {
-      id: "love",
-      name: "Love Mode (Partner)",
-      icon: Heart,
-      color: "from-pink-500 to-rose-600",
-      desc: "Loving Partner & Companion mode with love-bg.png and warm rose ambiance."
-    },
-    {
-      id: "dark",
-      name: "Dark Mode (Developer)",
-      icon: Shield,
-      color: "from-cyan-500 to-blue-600",
-      desc: "Senior Full-Stack Developer & Obsidian dark theme with bark-bg.png."
-    },
-    {
-      id: "dark_blue",
-      name: "Dark Blue Mode (Vedic Wisdom)",
-      icon: BookOpen,
-      color: "from-blue-600 to-amber-500",
-      desc: "Spiritual Guidance from Geeta, Ramayana & Ancient Scriptures."
-    }
-  ];
-
   const userInitials = (userSession?.name || "NP")
     .split(" ")
     .map((n: string) => n[0])
@@ -235,7 +198,7 @@ export default function SettingsPage() {
         {/* LEFT COLUMN: Theme & Mode Selector (2 cols) */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           
-          {/* Personality / Theme Mode Section */}
+          {/* Personality / Mode Section */}
           <div className="glass-panel p-4 sm:p-6 rounded-2xl sm:rounded-3xl relative overflow-hidden">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <div>
@@ -243,19 +206,18 @@ export default function SettingsPage() {
                   <Cpu size={18} className="text-[var(--accent)]" />
                   Sarla AI Personality & Mode
                 </h2>
-                <p className="text-xs text-[var(--theme-text-secondary)] font-medium">Switch personality mode instantly across all chat and voice interactions.</p>
+                <p className="text-xs text-[var(--theme-text-secondary)] font-medium">Switch personality mode instantly across all chat, voice, and live interactions.</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {themes.map((t) => {
-                const IconComp = t.icon;
-                const isSelected = themeMode === t.id;
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              {ALL_MODES.map((m) => {
+                const isSelected = themeMode === m.id;
 
                 return (
                   <div
-                    key={t.id}
-                    onClick={() => handleModeChange(t.id)}
+                    key={m.id}
+                    onClick={() => handleModeChange(m.id)}
                     className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer ${
                       isSelected
                         ? "glass-card ring-2 ring-[var(--accent)] border-[var(--accent)] shadow-lg"
@@ -263,9 +225,9 @@ export default function SettingsPage() {
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className={`p-2.5 rounded-xl bg-gradient-to-tr ${t.color} text-white shadow-sm`}>
-                          <IconComp size={18} />
+                      <div className="flex items-center justify-between mb-3">
+                        <div className={`w-9 h-9 rounded-xl bg-gradient-to-tr ${m.gradient} text-white flex items-center justify-center font-bold text-base shadow-sm`}>
+                          {m.symbol}
                         </div>
                         {isSelected && (
                           <span className="flex items-center gap-1 text-[11px] font-bold text-white bg-[var(--accent)] px-2.5 py-0.5 rounded-full shadow-xs">
@@ -273,8 +235,12 @@ export default function SettingsPage() {
                           </span>
                         )}
                       </div>
-                      <h3 className="font-bold text-sm text-[var(--theme-text-primary)] mb-1">{t.name}</h3>
-                      <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed font-normal">{t.desc}</p>
+                      <h3 className="font-bold text-sm text-[var(--theme-text-primary)] mb-0.5 flex items-center gap-1.5">
+                        <span>{m.symbol}</span>
+                        <span>{m.label}</span>
+                      </h3>
+                      <p className="text-[11px] font-semibold text-[var(--accent)] mb-1.5">{m.tagline}</p>
+                      <p className="text-xs text-[var(--theme-text-secondary)] leading-relaxed font-normal">{m.description}</p>
                     </div>
                   </div>
                 );

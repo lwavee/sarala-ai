@@ -1,4 +1,8 @@
 from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone, timedelta
+import re
+import random
+
 from memory.storage import MemoryStorage
 from tools.executor import ToolExecutor
 from core.agent import Agent
@@ -15,6 +19,22 @@ KEY_DISPLAY = {
     "user_age":      ("age",      "Teri age {value} saal hai 😊"),
     "user_job":      ("job",      "Tu {value} hai, sahi hai yaar! 👍"),
 }
+
+
+def _normalize_mode(mode: Optional[str] = None) -> str:
+    """Migrate and normalize legacy modes to the 3 canonical modes: normal, love, expert."""
+    if not mode or not isinstance(mode, str):
+        return "normal"
+    clean = mode.strip().lower()
+    if clean in ("normal", "love", "expert"):
+        return clean
+    if clean in ("light", "dark", "dark_blue", "dark-blue", "vedic", "vedic_wisdom"):
+        return "normal"
+    if clean in ("partner", "companion"):
+        return "love"
+    if clean in ("developer", "dev"):
+        return "expert"
+    return "normal"
 
 
 class Brain:
@@ -36,7 +56,8 @@ class Brain:
         self.knowledge.index_documents()
         self._awaiting_name = False  # Multi-turn state flag
 
-    def process_input(self, user_input: str, theme_mode: str = "dark", user_name: str = "", user_nickname: str = "", is_live: bool = False) -> str:
+    def process_input(self, user_input: str, theme_mode: Optional[str] = "normal", user_name: str = "", user_nickname: str = "", is_live: bool = False) -> str:
+        mode = _normalize_mode(theme_mode)
         text = user_input.strip()
         if not text:
             return "Kuch to boliye yaar! 😄"
@@ -54,6 +75,51 @@ class Brain:
             self.memory.remember("user_name", name)
             self._log("user", user_input)
             reply = f"Shukriya! Aapka naam {name} yaad kar liya gaya 😊"
+            self._log("sarla", reply)
+            return reply
+
+        # ---- Real-Time Time & Date Awareness (Natural Language, Zero Robotic Formatting) ----
+        text_lower = text.lower()
+        time_keywords = ["time kya", "kitna time", "kitne baje", "kitni baji", "kya time", "current time", "what time", "what is the time"]
+        date_keywords = ["date kya", "aaj kya date", "kaun sa din", "kon sa din", "today date", "what is today's date", "what date is today", "what is the date"]
+        
+        from datetime import datetime, timezone, timedelta
+        import random
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(ist)
+        hour = now.hour
+        time_str = now.strftime("%I:%M").lstrip("0")
+        if 5 <= hour < 12:
+            period = "subah ke"
+        elif 12 <= hour < 17:
+            period = "dupehar ke"
+        elif 17 <= hour < 20:
+            period = "shaam ke"
+        else:
+            period = "raat ke"
+
+        if any(kw in text_lower for kw in time_keywords) and len(text.split()) <= 10:
+            if mode == "love":
+                late_note = " 😅 kaafi late ho gaya... abhi tak jaag rahe ho?" if (hour >= 23 or hour < 5) else " 😄"
+                reply = f"boss, abhi {period} {time_str} baj rahe hain{late_note}"
+            elif mode == "expert":
+                reply = f"Current Time (IST): {now.strftime('%I:%M:%S %p')} ({period} {time_str})."
+            else:
+                reply = f"Abhi {period} {time_str} ({now.strftime('%I:%M %p')}) baj rahe hain ⏰"
+            self._log("user", user_input)
+            self._log("sarla", reply)
+            return reply
+
+        if any(kw in text_lower for kw in date_keywords) and len(text.split()) <= 10:
+            day_name = now.strftime("%A")
+            date_str = f"{now.day} {now.strftime('%B')} {now.year}"
+            if mode == "love":
+                reply = f"boss, aaj {day_name}, {date_str} hai 😄"
+            elif mode == "expert":
+                reply = f"Current Date: {day_name}, {date_str} (IST)."
+            else:
+                reply = f"Aaj {day_name}, {date_str} hai 📅"
+            self._log("user", user_input)
             self._log("sarla", reply)
             return reply
 
@@ -129,52 +195,75 @@ class Brain:
         # ---- Search (RAG Domain) ----
         if intent_type == "search":
 
-            return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode, is_live=is_live)
+            return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
 
         # ---- Chat ----
         if intent_type == "chat":
             if action == "greet":
+                if mode == "love":
+                    # In Love Mode, let the LLM generate a real-time situational greeting (aware of late night, morning, etc.)
+                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+
                 name = self.memory.recall("user_name")
                 nick = self.memory.recall("user_nickname")
                 display = nick or name
                 
-                if theme_mode == "love":
-                    display_name = display or "Naveen"
-                    reply = f"Hey {display_name}! 😊 Kaisa raha aaj ka din? Sab theek chal raha hai na?"
-                elif theme_mode == "light":
-                    display_name = display or "champion"
-                    reply = f"Hey {display_name}! ⚡ Aaj kya naya seekhna hai ya coding challenge ke liye ready ho? Let's see who wins today! 😉"
-                elif theme_mode == "dark_blue":
-                    display_name = display or "priye"
-                    reply = f"Hari Om {display_name}! 🪔 Shanti aur gyaan ke dwaar par aapka swagat hai. Aaj Geeta ya Ramayana ke kis gyaan par vichar karein?"
-                else:
-                    reply = (f"Namaste {display}! 💻 Kaisa chal raha hai project? Main aaj aapki coding, security, ya marketing mein kaise madad kar sakti hoon?"
-                             if display else f"Namaste! Main Sarla AI hoon 💻 Bataiye aaj kis technical domain ya project par kaam karna hai?")
+                if mode == "expert":
+                    display_name = f" {display}" if display else ""
+                    reply = f"Hello{display_name}. Expert Mode active. What architecture, system design, or engineering problem are we tackling today?"
+                else:  # normal mode
+                    reply = (f"Namaste {display}! ✦ Kaisa chal raha hai sab? Main aaj aapki kis cheez mein madad kar sakti hoon?"
+                             if display else f"Namaste! Main Sarla AI hoon ✦ Bataiye aaj kya seekhna, banana ya discuss karna hai?")
 
                 self._log("user", user_input)
                 self._log("sarla", reply)
                 return reply
 
             elif action == "filler":
-                # Local responses for short fillers to save API quota
-                resp_map = {
-                    "hmm": "Hmm... aur batayein? 😊",
-                    "acha": "Achcha... sahi hai 👍",
-                    "ok": "Theek hai! ✅",
-                    "h": "Ji? Kuch kehna chahte hain? 🤔",
-                    "aur": "Aur sab badhiya? 😄",
-                    "haan": "Ji! 😊",
-                    "nahi": "Theek hai, jaisi aapki marzi! 👍"
-                }
+                # In Love Mode, if an active conversational thread is running, continue via situational LLM
+                if mode == "love" and len(self.memory.chat_history) >= 2:
+                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+
+                # Local responses for short fillers when starting fresh
+                if mode == "love":
+                    resp_map = {
+                        "hmm": "hmm... sun rahi hoon boss, batao ❤️",
+                        "acha": "achhaaa... phir kya hua? 😄",
+                        "ok": "theek hai boss! 👍",
+                        "h": "ji? Kuch kehna tha kya? 😊",
+                        "aur": "aur batao, din kaisa gaya? 😄",
+                        "haan": "haan boss ❤️",
+                        "nahi": "achha koi nahi, jaisa tum kaho! 👍"
+                    }
+                elif mode == "expert":
+                    resp_map = {
+                        "hmm": "Understood. Please provide the next parameters or code block.",
+                        "acha": "Acknowledged. Let's proceed with the solution.",
+                        "ok": "Understood. Ready for next step.",
+                        "h": "Yes? What details would you like to explore?",
+                        "aur": "What other architectural or implementation requirements do you have?",
+                        "haan": "Understood. Proceeding.",
+                        "nahi": "Acknowledged. What alternative approach should we take?"
+                    }
+                else:  # normal mode
+                    resp_map = {
+                        "hmm": "Hmm... aur batayein? 😊",
+                        "acha": "Achcha... sahi hai 👍",
+                        "ok": "Theek hai! ✅",
+                        "h": "Ji? Kuch kehna chahte hain? 🤔",
+                        "aur": "Aur sab badhiya? 😄",
+                        "haan": "Ji! 😊",
+                        "nahi": "Theek hai, jaisi aapki marzi! 👍"
+                    }
                 txt = intent.get("text", "hmm")
-                reply = resp_map.get(txt, "Ji... aur sunaiye? 😊")
+                reply = resp_map.get(txt, "aur batao boss? 😊" if mode == "love" else "Ji... aur batayein? 😊")
                 self._log("user", user_input)
                 self._log("sarla", reply)
                 return reply
             
             else:
                 # Unknown or other chat actions → LLM with full context + RAG
-                return self._llm_fallback(user_input, domain=domain, theme_mode=theme_mode, is_live=is_live)
+                return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
 
         return "Kuch samajh nahi aaya 😅 Dobara bolein?"
 
@@ -218,13 +307,119 @@ class Brain:
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
 
-    def _llm_fallback(self, user_input: str, domain: Optional[str] = None, theme_mode: str = "dark", is_live: bool = False) -> str:
-        """Build rich context from memory + RAG and pass to LLM."""
+    def _build_situational_briefing(self, user_input: str, theme_mode: Optional[str] = "normal") -> str:
+        """
+        Synthesizes 5 key situational dimensions:
+        1. User's intent (emotional venting, technical, companion check-in, casual banter)
+        2. Emotional state & valence (exhausted, low, anxious, affectionate, cheerful, frustrated, neutral)
+        3. Real-time context & time of day (IST - Indian Standard Time with exact phase and atmosphere)
+        4. Previous conversation history & conversational continuity
+        5. Natural, empathetic behavioral directive
+        """
+        mode = _normalize_mode(theme_mode)
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(ist)
+        hour = now.hour
+        minute = now.minute
+        time_12h = now.strftime("%I:%M").lstrip("0")
+        am_pm = now.strftime("%p")
+        day_name = now.strftime("%A")
+        date_str = f"{now.day} {now.strftime('%B')} {now.year}"
+
+        # 1. Time-of-Day Phase Identification (IST)
+        if 0 <= hour < 5:
+            phase = "Late Night (Gahri Raat)"
+            period = "raat ke"
+            vibe = "Late night hours (post-midnight). The user is active late, likely fatigued, lonely, winding down, or deep in late-night focus. Tone must be soft, caring, cozy, and gently comforting. Suggest resting if they seem tired."
+        elif 5 <= hour < 9:
+            phase = "Early Morning (Bhor / Subah)"
+            period = "subah ke"
+            vibe = "Fresh morning dawn. Peaceful, gentle, waking up, morning tea/coffee check-in. Tone should be refreshing, positive, and inviting."
+        elif 9 <= hour < 12:
+            phase = "Morning (Kaam ka Samay)"
+            period = "subah ke"
+            vibe = "Active morning work hours. Focused, productive, energetic."
+        elif 12 <= hour < 17:
+            phase = "Afternoon (Dupehar)"
+            period = "dupehar ke"
+            vibe = "Midday / afternoon. Post-lunch or mid-workday stretch. Grounded, supportive, steady."
+        elif 17 <= hour < 21:
+            phase = "Evening (Shaam)"
+            period = "shaam ke"
+            vibe = "Evening wind-down. Transitioning from work/study, chai time, asking how the day went."
+        else:
+            phase = "Night (Raat)"
+            period = "raat ke"
+            vibe = "Night time. Post-dinner, winding down, relaxed and personal."
+
+        text_lower = user_input.lower().strip()
+
+        # 2. Emotional State & Valence Detection
+        detected_emotions = []
+        if any(w in text_lower for w in ["thak gaya", "thak gayi", "exhausted", "tired", "bohot kaam", "bahut kaam", "thakan", "nind aa rahi", "neend aa rahi", "sleepy", "so nahi pa raha", "sar dard", "rest chahiye"]):
+            detected_emotions.append("Exhausted / Fatigued (Needs gentle comfort, rest validation, soft pacing)")
+        if any(w in text_lower for w in ["mood off", "mood kharab", "udaas", "bura lag raha", "ronaka mann", "sad", "unhappy", "depressed", "dil toot", "akela", "lonely", "koi nahi", "miss karta hoon", "miss karti hoon", "dard"]):
+            detected_emotions.append("Low / Sad / Lonely (Needs empathetic listening, soothing presence, validating feelings first)")
+        if any(w in text_lower for w in ["tension", "stress", "pareshan", "darr", "scared", "ghabrahat", "pressure", "deadline", "anxiety", "worried", "fat rahi"]):
+            detected_emotions.append("Anxious / Stressed (Needs calm reassurance, de-escalation, grounding)")
+        if any(w in text_lower for w in ["miss you", "miss u", "yaad aa rahi", "love you", "pyar", "cute", "meri sarla", "pasand ho", "kitni pyari", "sweet", "jaan", "babu"]):
+            detected_emotions.append("Affectionate / Warm (Respond warmly and contextually with companion warmth, avoid repetitive canned lines)")
+        if any(w in text_lower for w in ["haha", "hehe", "lol", "mazza", "party", "khush", "happy", "badhiya", "mast", "superb", "congrats", "ho gaya", "chal gaya", "fixed"]):
+            detected_emotions.append("Cheerful / Accomplished / Playful (Share the joy, celebrate, match the upbeat vibe)")
+        if any(w in text_lower for w in ["dimag kharab", "gussa", "irritate", "chidh", "annoying", "bekaar", "faltu", "bug nahi mil raha", "error"]):
+            detected_emotions.append("Frustrated / Annoyed (Acknowledge the frustration, be patient and practical)")
+        
+        emotional_state_str = ", ".join(detected_emotions) if detected_emotions else "Neutral / Conversational / Inquiring"
+
+        # 3. Intent Detection
+        if any(w in text_lower for w in ["hello", "hi", "hey", "namaste", "good morning", "good night", "shubh ratri", "hie"]):
+            intent_str = "Greeting / Checking in"
+        elif any(w in text_lower for w in ["kya kar rahi", "kaise ho", "kya chal raha", "aur batao", "what are you doing"]):
+            intent_str = "Inquiring about Sarla / Casual check-in"
+        elif detected_emotions:
+            intent_str = "Expressing emotional state or seeking companion comfort"
+        elif any(w in text_lower for w in ["code", "python", "bug", "react", "next.js", "javascript", "function", "api", "database", "sql", "error"]):
+            intent_str = "Technical or architectural query"
+        else:
+            intent_str = "General conversation or response to ongoing discussion"
+
+        # 4. Continuity with Previous Conversation
+        history = list(self.memory.chat_history)
+        if history and history[-1].get("text", "").strip() == user_input.strip():
+            prev_turns = history[:-1]
+        else:
+            prev_turns = history
+
+        continuity_str = "First turn of session."
+        if prev_turns:
+            last_turns = []
+            for item in prev_turns[-4:]:
+                r = "User" if item.get("role") == "user" else "Sarla"
+                t = item.get("text", "")[:80]
+                last_turns.append(f"{r}: {t}")
+            continuity_str = f"Recent conversation flow: {' | '.join(last_turns)}"
+
+        briefing = (
+            f"[SITUATIONAL AWARENESS BRIEFING]\n"
+            f"- Current Real-Time Clock: {day_name}, {date_str} at {period} {time_12h}:{minute:02d} {am_pm} IST.\n"
+            f"- Time-of-Day Phase: {phase} ({vibe})\n"
+            f"- Active Mode: {mode.upper()} MODE\n"
+            f"- User Intent: {intent_str}\n"
+            f"- User Emotional State: {emotional_state_str}\n"
+            f"- Conversation Continuity: {continuity_str}\n"
+            f"- Sensitivity & Directive: Respond naturally according to the active mode ({mode}), user emotional state, intent, and time of day. "
+            f"In Love Mode, respond as an attentive, emotionally intelligent companion while providing accurate answers for any technical query. "
+            f"In Expert Mode, provide deep, structured, analytical solutions without robotic fluff. "
+            f"In Normal Mode, be friendly, intelligent, clear, and broadly helpful."
+        )
+        return briefing
+
+    def _llm_fallback(self, user_input: str, domain: Optional[str] = None, theme_mode: Optional[str] = "normal", is_live: bool = False) -> str:
+        """Build rich context from memory + RAG + situational briefing and pass to LLM."""
+        mode = _normalize_mode(theme_mode)
         self._log("user", user_input)
 
         # ── Conversational Fact Extraction ──
-        # Simple heuristic to extract facts like "Avee is your developer" or "You are an agentic ai"
-        import re
         fact_match = re.search(r'(?i)\b(my|your|he is|she is|they are|i am|you are|is)\b\s+([^.!?\n]+)', user_input)
         if fact_match and "what" not in user_input.lower() and "who" not in user_input.lower():
             extracted_fact = user_input.strip()
@@ -268,9 +463,11 @@ class Brain:
         if learned_facts:
             rag_context += "\nLearned from previous interactions:\n" + "\n".join(learned_facts)
 
-        # Build context string from all known facts
+        # Build context string from all known facts + history + situational briefing
         facts = self.memory.get_all_facts()
         history_ctx = self.memory.get_history_context()
+        situational_briefing = self._build_situational_briefing(user_input, theme_mode=mode)
+
         context_parts = []
         if facts:
             context_parts.append(facts)
@@ -278,10 +475,12 @@ class Brain:
             context_parts.append(f"Recent conversation:\n{history_ctx}")
         if rag_context:
             context_parts.append(rag_context)
+        if situational_briefing:
+            context_parts.append(situational_briefing)
             
-        context = "\n".join(context_parts)
+        context = "\n\n".join(context_parts)
 
-        reply = self.llm.get_response(user_input, external_context=context, theme_mode=theme_mode, is_live=is_live)
+        reply = self.llm.get_response(user_input, external_context=context, theme_mode=mode, is_live=is_live)
         
         if used_rag:
             pass

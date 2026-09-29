@@ -6,6 +6,7 @@ import {
   Send, Mic, MicOff, Sparkles, Heart, Shield, BookOpen, Bot, 
   Volume2, VolumeX, Radio, Video, RefreshCw, Square, Paperclip
 } from "lucide-react";
+import { getSavedMode, normalizeModeId, SaralaModeId } from "@/lib/modes";
 
 interface Message {
   id: string;
@@ -24,7 +25,7 @@ function ChatbotContent() {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [themeMode, setThemeMode] = useState<string>("dark");
+  const [themeMode, setThemeMode] = useState<SaralaModeId>(() => getSavedMode());
   
   // Real Human Cloned & In-Memory Streaming Voice States
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
@@ -70,12 +71,11 @@ function ChatbotContent() {
       }
     }
 
-    const activeMode = localStorage.getItem("sarla_theme_mode") || "dark";
+    const activeMode = getSavedMode();
     setThemeMode(activeMode);
 
     const handleStorage = () => {
-      const mode = localStorage.getItem("sarla_theme_mode") || "dark";
-      setThemeMode(mode);
+      setThemeMode(getSavedMode());
     };
 
     const handleNewChat = () => {
@@ -95,18 +95,20 @@ function ChatbotContent() {
     };
 
     const handleThemeChange = (e: any) => {
-      const mode = e.detail?.mode || localStorage.getItem("sarla_theme_mode") || "light";
+      const mode = normalizeModeId(e.detail?.mode || getSavedMode());
       setThemeMode(mode);
     };
 
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sarla_theme_changed", handleThemeChange);
+    window.addEventListener("sarla_mode_changed", handleThemeChange);
     window.addEventListener("sarla_new_chat", handleNewChat);
     window.addEventListener("sarla_open_chat", handleOpenChat);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sarla_theme_changed", handleThemeChange);
+      window.removeEventListener("sarla_mode_changed", handleThemeChange);
       window.removeEventListener("sarla_new_chat", handleNewChat);
       window.removeEventListener("sarla_open_chat", handleOpenChat);
       stopSpeaking();
@@ -359,7 +361,7 @@ function ChatbotContent() {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    const currentMode = localStorage.getItem("sarla_theme_mode") || themeMode;
+    const currentMode = getSavedMode();
 
     let userName = "";
     let userNickname = "";
@@ -443,10 +445,9 @@ function ChatbotContent() {
     switch (themeMode) {
       case "love":
         return "bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 text-white shadow-md shadow-pink-500/25";
-      case "dark":
-      case "dark_blue":
+      case "expert":
         return "bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white shadow-md shadow-cyan-500/25";
-      case "light":
+      case "normal":
       default:
         return "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/25";
     }
@@ -456,10 +457,9 @@ function ChatbotContent() {
     switch (themeMode) {
       case "love":
         return "bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 shadow-pink-500/25";
-      case "dark":
-      case "dark_blue":
+      case "expert":
         return "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 shadow-cyan-500/25";
-      case "light":
+      case "normal":
       default:
         return "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-indigo-500/25";
     }

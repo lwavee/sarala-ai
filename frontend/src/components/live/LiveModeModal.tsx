@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useLiveSession } from "./useLiveSession";
 import LiveStatus from "./LiveStatus";
 import LiveAvatar from "./LiveAvatar";
@@ -20,7 +20,7 @@ interface LiveModeModalProps {
 
 function LiveSessionContent({
   onClose,
-  themeMode = "dark",
+  themeMode = "normal",
   userName = "",
   userNickname = "",
 }: {
@@ -55,6 +55,11 @@ function LiveSessionContent({
     onExit: onClose,
   });
 
+  const handleClose = useCallback(() => {
+    cleanupLiveSession();
+    onClose();
+  }, [cleanupLiveSession, onClose]);
+
   // Handle ESC key to exit video call
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -64,12 +69,7 @@ function LiveSessionContent({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isUploaderOpen]);
-
-  const handleClose = () => {
-    cleanupLiveSession();
-    onClose();
-  };
+  }, [isUploaderOpen, handleClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-between p-2 md:p-4 bg-slate-950/95 backdrop-blur-2xl animate-fade-in overflow-hidden select-none max-h-screen">

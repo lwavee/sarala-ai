@@ -16,7 +16,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [chatHistory, setChatHistory] = useState<any[]>([]);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("id");
+    }
+    return null;
+  });
   const [userSession, setUserSession] = useState<any>(null);
 
   useEffect(() => {
@@ -55,11 +61,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setActiveChatId(params.get("id"));
-    }
-
     const onOpenChat = (e: any) => {
       if (e.detail?.id) {
         setActiveChatId(String(e.detail.id));
@@ -137,7 +138,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   // Group chat history by date
   const groupedHistory = chatHistory.reduce((acc: Record<string, any[]>, chat: any) => {
-    const group = getGroupDate(chat.updatedAt || chat.createdAt || Date.now());
+    const group = getGroupDate(chat.updatedAt || chat.createdAt || 0);
     if (!acc[group]) acc[group] = [];
     acc[group].push(chat);
     return acc;

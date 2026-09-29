@@ -64,23 +64,24 @@ export default function AvatarUploaderModal({
   onAvatarUpdated,
 }: AvatarUploaderModalProps) {
   const [activeTab, setActiveTab] = useState<"presets" | "upload" | "url">("presets");
-  const [selectedModelUrl, setSelectedModelUrl] = useState<string>("/avatar/modelToUsed_runtime.glb");
-  const [customUrlInput, setCustomUrlInput] = useState<string>("");
+  const [selectedModelUrl, setSelectedModelUrl] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("sarla_active_avatar_model") || "/avatar/modelToUsed_runtime.glb";
+    }
+    return "/avatar/modelToUsed_runtime.glb";
+  });
+  const [customUrlInput, setCustomUrlInput] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("sarla_active_avatar_model");
+      if (saved && (saved.startsWith("http://") || saved.startsWith("https://"))) {
+        return saved;
+      }
+    }
+    return "";
+  });
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("sarla_active_avatar_model");
-      if (saved) {
-        setSelectedModelUrl(saved);
-        if (saved.startsWith("http://") || saved.startsWith("https://")) {
-          setCustomUrlInput(saved);
-        }
-      }
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

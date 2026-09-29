@@ -1,10 +1,34 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Menu, Search, Bell, Video } from "lucide-react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { SARALA_MODES, getSavedMode, normalizeModeId, SaralaModeId } from "@/lib/modes";
 
 export default function TopBar({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => void }) {
   const pathname = usePathname();
+  const [activeMode, setActiveMode] = useState<SaralaModeId>("normal");
+
+  useEffect(() => {
+    setActiveMode(getSavedMode());
+
+    const handleModeChange = (e: any) => {
+      const mode = normalizeModeId(e.detail?.mode || getSavedMode());
+      setActiveMode(mode);
+    };
+
+    window.addEventListener("sarla_theme_changed", handleModeChange);
+    window.addEventListener("sarla_mode_changed", handleModeChange);
+    window.addEventListener("storage", handleModeChange);
+    return () => {
+      window.removeEventListener("sarla_theme_changed", handleModeChange);
+      window.removeEventListener("sarla_mode_changed", handleModeChange);
+      window.removeEventListener("storage", handleModeChange);
+    };
+  }, []);
+
+  const modeConfig = SARALA_MODES[activeMode] || SARALA_MODES.normal;
 
   // Create a simple map for page titles
   const getPageTitle = () => {
@@ -39,8 +63,18 @@ export default function TopBar({ onOpenMobileSidebar }: { onOpenMobileSidebar: (
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3.5 shrink-0">
+        {/* Compact Mode Indicator Badge */}
+        <Link
+          href="/settings"
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[34px] rounded-full border transition-all text-xs font-semibold shadow-2xs hover:scale-105 active:scale-95 cursor-pointer ${modeConfig.badgeClass}`}
+          title={`Active: ${modeConfig.label} — Click to switch mode in Settings`}
+        >
+          <span className="text-sm leading-none font-bold">{modeConfig.symbol}</span>
+          <span className="hidden sm:inline font-bold">{modeConfig.label.replace(" Mode", "")}</span>
+        </Link>
+
         {/* Global Search pill - Desktop only */}
-        <div className="hidden sm:flex items-center glass-pill rounded-full px-3.5 py-1.5 min-w-[220px] shadow-2xs transition-all">
+        <div className="hidden lg:flex items-center glass-pill rounded-full px-3.5 py-1.5 min-w-[200px] shadow-2xs transition-all">
           <Search size={14} className="text-[var(--theme-text-muted)]" />
           <input 
             type="text" 
