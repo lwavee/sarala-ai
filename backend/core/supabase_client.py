@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional
+from typing import Optional, Any
 from dotenv import load_dotenv
 
 logger = logging.getLogger("sarala.supabase")
@@ -14,7 +14,8 @@ try:
     HAS_SUPABASE = True
 except ImportError:
     HAS_SUPABASE = False
-    Client = None
+    create_client: Any = None
+    Client: Any = None
 
 class SupabaseManager:
     """
@@ -22,7 +23,7 @@ class SupabaseManager:
     Provides verified database access for profiles, training items, knowledge chunks, and memory.
     """
     def __init__(self):
-        self.client: Optional[Client] = None
+        self.client: Any = None
         self._is_connected: bool = False
         self.supabase_url = os.getenv("SUPABASE_URL", "").strip().strip('"').strip("'")
         self.supabase_key = os.getenv("SUPABASE_KEY", "").strip().strip('"').strip("'")
@@ -33,7 +34,7 @@ class SupabaseManager:
         return bool(self.client is not None and self._is_connected)
 
     def _init_client(self):
-        if not HAS_SUPABASE:
+        if not HAS_SUPABASE or create_client is None:
             logger.warning("Supabase Python SDK not installed.")
             self._is_connected = False
             return
@@ -60,7 +61,7 @@ class SupabaseManager:
             self.client = None
             self._is_connected = False
 
-    def table(self, table_name: str):
+    def table(self, table_name: str) -> Any:
         """Returns Supabase query builder for the given table if connected, else None."""
         if not self.client:
             self._init_client()

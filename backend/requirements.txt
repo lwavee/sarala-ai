@@ -22,3 +22,5 @@ gradio_client
 pydub
 PyPDF2
 Pillow
+pymongo
+dnspython

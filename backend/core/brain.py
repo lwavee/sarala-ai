@@ -56,7 +56,15 @@ class Brain:
         self.knowledge.index_documents()
         self._awaiting_name = False  # Multi-turn state flag
 
-    def process_input(self, user_input: str, theme_mode: Optional[str] = "normal", user_name: str = "", user_nickname: str = "", is_live: bool = False) -> str:
+    def process_input(
+        self,
+        user_input: str,
+        theme_mode: Optional[str] = "normal",
+        user_name: str = "",
+        user_nickname: str = "",
+        is_live: bool = False,
+        user_id: str = "",
+    ) -> str:
         mode = _normalize_mode(theme_mode)
         text = user_input.strip()
         if not text:
@@ -64,15 +72,15 @@ class Brain:
 
         # Save session user info to memory if provided
         if user_name:
-            self.memory.remember("user_name", user_name)
+            self.memory.remember("user_name", user_name, user_id=user_id)
         if user_nickname:
-            self.memory.remember("user_nickname", user_nickname)
+            self.memory.remember("user_nickname", user_nickname, user_id=user_id)
 
         # ---- Multi-turn: waiting for name after "mera naam yaad rakh" ----
         if self._awaiting_name:
             self._awaiting_name = False
             name = text.title()
-            self.memory.remember("user_name", name)
+            self.memory.remember("user_name", name, user_id=user_id)
             self._log("user", user_input)
             reply = f"Shukriya! Aapka naam {name} yaad kar liya gaya 😊"
             self._log("sarla", reply)
@@ -187,7 +195,7 @@ class Brain:
                 self._log("sarla", reply)
                 return reply
             else:
-                reply = self._handle_memory(intent, user_input)
+                reply = self._handle_memory(intent, user_input, user_id=user_id)
                 self._log("user", user_input)
                 self._log("sarla", reply)
                 return reply
@@ -195,17 +203,17 @@ class Brain:
         # ---- Search (RAG Domain) ----
         if intent_type == "search":
 
-            return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+            return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
 
         # ---- Chat ----
         if intent_type == "chat":
             if action == "greet":
                 if mode == "love":
                     # In Love Mode, let the LLM generate a real-time situational greeting (aware of late night, morning, etc.)
-                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
 
-                name = self.memory.recall("user_name")
-                nick = self.memory.recall("user_nickname")
+                name = self.memory.recall("user_name", user_id=user_id)
+                nick = self.memory.recall("user_nickname", user_id=user_id)
                 display = nick or name
                 
                 if mode == "expert":
@@ -222,7 +230,7 @@ class Brain:
             elif action == "filler":
                 # In Love Mode, if an active conversational thread is running, continue via situational LLM
                 if mode == "love" and len(self.memory.chat_history) >= 2:
-                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
 
                 # Local responses for short fillers when starting fresh
                 if mode == "love":
@@ -263,11 +271,11 @@ class Brain:
             
             else:
                 # Unknown or other chat actions → LLM with full context + RAG
-                return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live)
+                return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
 
         return "Kuch samajh nahi aaya 😅 Dobara bolein?"
 
-    def _handle_memory(self, intent: dict, raw_input: str) -> str:
+    def _handle_memory(self, intent: dict, raw_input: str, user_id: str = "") -> str:
         action = intent.get("action")
 
         if action == "ask_for_name":
@@ -280,7 +288,7 @@ class Brain:
             if not key or not value:
                 return "Hmm, value samajh nahi aayi 🤔"
             key_str = str(key)
-            self.memory.remember(key_str, value)
+            self.memory.remember(key_str, value, user_id=user_id)
             label = KEY_DISPLAY.get(key_str, (key_str, f"{value} — yaad rakh liya! ✅"))[0]
             return f"Done! Aapka {label}: **{value}** — permanently yaad kar liya 💾"
 
@@ -289,7 +297,7 @@ class Brain:
             if not key:
                 return "Mujhe samajh nahi aaya kya yaad dilana hai 🤔"
             key_str = str(key)
-            value = self.memory.recall(key_str)
+            value = self.memory.recall(key_str, user_id=user_id)
             if value:
                 template = KEY_DISPLAY.get(key_str, ("?", "{value} hai"))[1]
                 return template.format(value=value)
@@ -298,11 +306,11 @@ class Brain:
 
         if action == "remember_fact":
             fact = intent.get("value", "")
-            existing = self.memory.recall("user_facts") or []
+            existing = self.memory.recall("user_facts", user_id=user_id) or []
             if isinstance(existing, str):
                 existing = [existing]
             existing.append(fact)
-            self.memory.remember("user_facts", existing)
+            self.memory.remember("user_facts", existing, user_id=user_id)
             return f"Yaad rakh liya: '{fact}' ✅"
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
@@ -414,7 +422,14 @@ class Brain:
         )
         return briefing
 
-    def _llm_fallback(self, user_input: str, domain: Optional[str] = None, theme_mode: Optional[str] = "normal", is_live: bool = False) -> str:
+    def _llm_fallback(
+        self,
+        user_input: str,
+        domain: Optional[str] = None,
+        theme_mode: Optional[str] = "normal",
+        is_live: bool = False,
+        user_id: str = "",
+    ) -> str:
         """Build rich context from memory + RAG + situational briefing and pass to LLM."""
         mode = _normalize_mode(theme_mode)
         self._log("user", user_input)
@@ -463,8 +478,8 @@ class Brain:
         if learned_facts:
             rag_context += "\nLearned from previous interactions:\n" + "\n".join(learned_facts)
 
-        # Build context string from all known facts + history + situational briefing
-        facts = self.memory.get_all_facts()
+        # Build context string from user-specific facts + history + situational briefing
+        facts = self.memory.get_all_facts(user_id=user_id)
         history_ctx = self.memory.get_history_context()
         situational_briefing = self._build_situational_briefing(user_input, theme_mode=mode)
 

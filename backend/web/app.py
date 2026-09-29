@@ -16,7 +16,16 @@ from core.brain import Brain
 from core.logger import logger
 from core.admin_service import admin_service
 from core.supabase_client import supabase_manager
+from core.mongodb_client import mongodb_manager
 from core.auth import CurrentUser, get_current_user, get_current_user_optional, get_current_admin
+from core.services import (
+    profile_service,
+    preferences_service,
+    conversation_service,
+    message_service,
+    memory_service,
+    user_file_service,
+)
 from voice.natural_voice import natural_voice_manager, clean_text_for_synthesis
 from voice.voice_service import get_voice_health, synthesize_sarala_voice, VoiceSynthesisError
 
@@ -81,6 +90,56 @@ class SignupRequest(BaseModel):
     password: str
     role: str = "user"
 
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    nickname: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+
+class PreferencesUpdateRequest(BaseModel):
+    theme_mode: Optional[str] = None
+    language: Optional[str] = None
+    timezone: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+    notifications_enabled: Optional[bool] = None
+    assistant_personality: Optional[str] = None
+    preferred_voice: Optional[str] = None
+    preferred_model: Optional[str] = None
+    ui_preferences: Optional[Dict[str, Any]] = None
+    persona_settings: Optional[Dict[str, Any]] = None
+
+class CreateConversationRequest(BaseModel):
+    title: str = "New Conversation"
+    mode: str = "normal"
+
+class UpdateConversationRequest(BaseModel):
+    title: Optional[str] = None
+    mode: Optional[str] = None
+    status: Optional[str] = None
+
+class CreateMessageRequest(BaseModel):
+    content: str
+    role: str = "user"
+    message_type: str = "text"
+    metadata: Optional[Dict[str, Any]] = None
+
+class CreateMemoryRequest(BaseModel):
+    memory_key: str
+    memory_value: Any
+    memory_type: str = "personal"
+    importance: float = 1.0
+    source: str = "user_input"
+    metadata: Optional[Dict[str, Any]] = None
+
+class RecordFileRequest(BaseModel):
+    original_name: str
+    storage_key: str
+    size_bytes: int
+    mime_type: str = "application/octet-stream"
+    storage_provider: str = "local"
+    status: str = "uploaded"
+    metadata: Optional[Dict[str, Any]] = None
+
 class ChatRequest(BaseModel):
     message: str
     theme_mode: str = "normal"
@@ -136,8 +195,9 @@ async def index():
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
+        "status": "healthy",
         "agent": "Sarla AI",
+        "mongodb_connected": mongodb_manager.is_connected,
         "supabase_connected": supabase_manager.is_connected
     }
 
@@ -154,18 +214,231 @@ async def signup(req: SignupRequest):
 
 @app.get("/api/auth/me")
 async def get_current_user_profile(current_user: CurrentUser = Depends(get_current_user)):
-    """Verifies and returns authenticated user's role and profile from Supabase."""
+    """Verifies and returns authenticated user's role and profile from MongoDB + Supabase."""
+    prof = profile_service.get_profile(current_user.user_id) or {}
     return {
         "authenticated": True,
         "user": {
             "id": current_user.id,
-            "name": current_user.full_name,
-            "nickname": current_user.nickname,
+            "user_id": current_user.user_id,
+            "name": prof.get("full_name") or current_user.full_name,
+            "nickname": prof.get("nickname") or current_user.nickname,
             "email": current_user.email,
             "role": current_user.role,
-            "is_active": current_user.is_active
+            "is_active": current_user.is_active,
+            "avatar_url": prof.get("avatar_url", ""),
+            "bio": prof.get("bio", ""),
         }
     }
+
+# ── Application Profile Endpoints (Supabase) ──────────────────────────────────
+@app.get("/api/profile")
+async def get_user_profile(current_user: CurrentUser = Depends(get_current_user)):
+    """Fetches application profile for the authenticated user from Supabase."""
+    prof = profile_service.get_profile(current_user.user_id) or {}
+    return {
+        "success": True,
+        "profile": {
+            "user_id": current_user.user_id,
+            "id": current_user.id,
+            "email": current_user.email,
+            "full_name": prof.get("full_name") or current_user.full_name,
+            "nickname": prof.get("nickname") or current_user.nickname,
+            "avatar_url": prof.get("avatar_url", ""),
+            "bio": prof.get("bio", ""),
+            "role": current_user.role,
+            "is_active": current_user.is_active,
+            "created_at": prof.get("created_at"),
+            "updated_at": prof.get("updated_at"),
+            "last_login_at": prof.get("last_login_at"),
+        }
+    }
+
+@app.put("/api/profile")
+async def update_user_profile(
+    updates: ProfileUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Updates profile. Strips role, is_active, and user_id to prevent escalation."""
+    fields = updates.model_dump(exclude_unset=True)
+    updated = profile_service.update_user_profile(current_user.user_id, fields)
+    return {"success": True, "profile": updated}
+
+# ── User Preferences Endpoints (Supabase) ────────────────────────────────────
+@app.get("/api/preferences")
+async def get_preferences(current_user: CurrentUser = Depends(get_current_user)):
+    """Fetches user preferences partitioned by user_id."""
+    prefs = preferences_service.get_preferences(current_user.user_id)
+    return {"success": True, "preferences": prefs}
+
+@app.put("/api/preferences")
+async def update_preferences(
+    updates: PreferencesUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Updates user preferences for the authenticated user_id."""
+    fields = updates.model_dump(exclude_unset=True)
+    updated = preferences_service.update_preferences(current_user.user_id, fields)
+    return {"success": True, "preferences": updated}
+
+# ── Conversation Endpoints (Supabase) ────────────────────────────────────────
+@app.get("/api/conversations")
+async def list_conversations(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Lists conversations strictly owned by current_user.user_id."""
+    convs = conversation_service.list_conversations(current_user.user_id, limit=limit, offset=offset)
+    return {"success": True, "conversations": convs}
+
+@app.post("/api/conversations")
+async def create_conversation(
+    req: CreateConversationRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Creates a new conversation owned by current_user.user_id."""
+    conv = conversation_service.create_conversation(current_user.user_id, title=req.title, mode=req.mode)
+    return {"success": True, "conversation": conv}
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Retrieves conversation if owned by current_user.user_id."""
+    conv = conversation_service.get_conversation(current_user.user_id, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"success": True, "conversation": conv}
+
+@app.put("/api/conversations/{conversation_id}")
+async def update_conversation(
+    conversation_id: str,
+    req: UpdateConversationRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Updates conversation if owned by current_user.user_id."""
+    fields = req.model_dump(exclude_unset=True)
+    conv = conversation_service.update_conversation(current_user.user_id, conversation_id, fields)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"success": True, "conversation": conv}
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Deletes conversation if owned by current_user.user_id."""
+    success = conversation_service.delete_conversation(current_user.user_id, conversation_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"success": True, "message": "Conversation deleted."}
+
+# ── Message Endpoints (Supabase) ─────────────────────────────────────────────
+@app.get("/api/conversations/{conversation_id}/messages")
+async def list_messages(
+    conversation_id: str,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Lists messages for conversation, verifying current_user.user_id ownership."""
+    msgs = message_service.list_messages(current_user.user_id, conversation_id, limit=limit, offset=offset)
+    return {"success": True, "messages": msgs}
+
+@app.post("/api/conversations/{conversation_id}/messages")
+async def create_message(
+    conversation_id: str,
+    req: CreateMessageRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Creates message in conversation, verifying current_user.user_id ownership."""
+    msg = message_service.create_message(
+        user_id=current_user.user_id,
+        conversation_id=conversation_id,
+        role=req.role,
+        content=req.content,
+        message_type=req.message_type,
+        metadata=req.metadata
+    )
+    if not msg:
+        raise HTTPException(status_code=404, detail="Conversation not found or not owned by you.")
+    return {"success": True, "message": msg}
+
+# ── Memory Endpoints (Supabase) ──────────────────────────────────────────────
+@app.get("/api/memories")
+async def list_memories(current_user: CurrentUser = Depends(get_current_user)):
+    """Lists all memories partitioned by current_user.user_id."""
+    mems = memory_service.list_memories(current_user.user_id)
+    return {"success": True, "memories": mems}
+
+@app.post("/api/memories")
+async def create_memory(
+    req: CreateMemoryRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Upserts a memory for current_user.user_id on (user_id, memory_key)."""
+    mem = memory_service.set_memory(
+        user_id=current_user.user_id,
+        memory_key=req.memory_key,
+        memory_value=req.memory_value,
+        memory_type=req.memory_type,
+        importance=req.importance,
+        source=req.source,
+        metadata=req.metadata,
+    )
+    return {"success": True, "memory": mem}
+
+@app.delete("/api/memories/{memory_key}")
+async def delete_memory(
+    memory_key: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Deletes memory owned by current_user.user_id."""
+    success = memory_service.delete_memory(current_user.user_id, memory_key)
+    return {"success": success}
+
+# ── User File Metadata Endpoints (Supabase) ──────────────────────────────────
+@app.get("/api/files")
+async def list_files(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Lists file metadata owned by current_user.user_id."""
+    files = user_file_service.list_files(current_user.user_id, limit=limit, offset=offset)
+    return {"success": True, "files": files}
+
+@app.post("/api/files")
+async def record_file(
+    req: RecordFileRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Records file metadata tied to current_user.user_id."""
+    f = user_file_service.record_file(
+        user_id=current_user.user_id,
+        original_name=req.original_name,
+        storage_key=req.storage_key,
+        size_bytes=req.size_bytes,
+        mime_type=req.mime_type,
+        storage_provider=req.storage_provider,
+        status=req.status,
+        metadata=req.metadata,
+    )
+    return {"success": True, "file": f}
+
+@app.delete("/api/files/{file_id}")
+async def delete_file(
+    file_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Soft-deletes file metadata owned by current_user.user_id."""
+    success = user_file_service.delete_file(current_user.user_id, file_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="File metadata not found.")
+    return {"success": True, "message": "File metadata deleted."}
 
 # ── AI Chat (With In-Memory Voice Streaming & Zero Disk Clutter) ──────────────
 @app.post("/chat")
@@ -188,6 +461,7 @@ async def chat(
         })
     
     # Priority: Derived authenticated identity -> fallback to request body if guest
+    user_id = current_user.user_id if current_user else ""
     user_name = current_user.full_name if current_user else (req.user_name or "")
     user_nickname = current_user.nickname if current_user else (req.user_nickname or "")
     user_identifier = f"{user_name} ({current_user.id})" if current_user else f"Guest ({req.user_name or 'Anonymous'})"
@@ -199,7 +473,8 @@ async def chat(
             theme_mode=req.theme_mode, 
             user_name=user_name, 
             user_nickname=user_nickname,
-            is_live=req.is_live
+            is_live=req.is_live,
+            user_id=user_id,
         )
 
         emotion, gesture = classify_emotion(response)

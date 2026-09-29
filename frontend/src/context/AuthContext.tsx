@@ -147,11 +147,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const prof = await fetchProfile(initialSession.user);
         if (mounted) setProfile(prof);
       } else {
-        setSession(null);
-        setUser(null);
-        setProfile(null);
+        // Fallback: check cached session in localStorage
+        if (typeof window !== "undefined") {
+          try {
+            const cachedStr = localStorage.getItem("sarla_user_session");
+            if (cachedStr) {
+              const cached = JSON.parse(cachedStr);
+              if (cached?.email && cached?.role) {
+                const localProfile: UserProfile = {
+                  id: cached.id || "00000000-0000-0000-0000-000000000001",
+                  email: cached.email,
+                  full_name: cached.name || cached.full_name || "User",
+                  nickname: cached.nickname || "",
+                  role: cached.role === "admin" ? "admin" : "user",
+                  is_active: cached.is_active !== false,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                };
+                setProfile(localProfile);
+                setUser({ id: localProfile.id, email: localProfile.email } as any);
+                setSession({ access_token: cached.token || "local-token" } as any);
+              }
+            }
+          } catch (_) {}
+        }
       }
 
+      if (mounted) setLoading(false);
+    }).catch(() => {
+      if (typeof window !== "undefined") {
+        try {
+          const cachedStr = localStorage.getItem("sarla_user_session");
+          if (cachedStr) {
+            const cached = JSON.parse(cachedStr);
+            if (cached?.email && cached?.role) {
+              const localProfile: UserProfile = {
+                id: cached.id || "00000000-0000-0000-0000-000000000001",
+                email: cached.email,
+                full_name: cached.name || cached.full_name || "User",
+                nickname: cached.nickname || "",
+                role: cached.role === "admin" ? "admin" : "user",
+                is_active: cached.is_active !== false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+              setProfile(localProfile);
+              setUser({ id: localProfile.id, email: localProfile.email } as any);
+              setSession({ access_token: cached.token || "local-token" } as any);
+            }
+          }
+        } catch (_) {}
+      }
       if (mounted) setLoading(false);
     });
 
@@ -183,11 +229,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchProfile]);
 
+  // Local backend fallback login
+  const localBackendLogin = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        const localProfile: UserProfile = {
+          id: data.user.id || "00000000-0000-0000-0000-000000000001",
+          email: data.user.email,
+          full_name: data.user.name,
+          nickname: data.user.nickname,
+          role: data.user.role === "admin" ? "admin" : "user",
+          is_active: data.user.is_active !== false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        setProfile(localProfile);
+        setUser({ id: localProfile.id, email: localProfile.email } as any);
+        setSession({ access_token: data.token || "local-token" } as any);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sarla_user_session", JSON.stringify({
+            ...data.user,
+            token: data.token || "local-token"
+          }));
+          window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
+        }
+        return { success: true };
+      }
+      return { success: false, error: data.message || "Invalid credentials" };
+    } catch (e: any) {
+      return { success: false, error: "Network error: Unable to reach authentication server." };
+    }
+  };
+
   // Login handler
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    // 1. Primary: MongoDB Authentication via Backend API
+    const backendRes = await localBackendLogin(email, password);
+    if (backendRes.success) {
+      return backendRes;
+    }
+    if (backendRes.error && (backendRes.error.includes("Incorrect") || backendRes.error.includes("deactivated"))) {
+      return backendRes;
+    }
+
+    // 2. Secondary fallback: Supabase Auth
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return { success: false, error: "Authentication service is currently offline. Please check your configuration." };
+      return backendRes;
     }
 
     try {
@@ -219,8 +317,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return { success: false, error: "Unable to retrieve user credentials." };
     } catch (err: any) {
-      console.error("[Sarala Auth] Login exception:", err);
-      return { success: false, error: "A network error occurred during login. Please try again." };
+      console.error("[Sarala Auth] Supabase login fallback exception:", err);
+      return backendRes;
     }
   };
 
@@ -231,16 +329,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fullName: string,
     nickname?: string
   ): Promise<{ success: boolean; error?: string; requiresConfirmation?: boolean }> => {
+    const emailClean = email.trim().toLowerCase();
+    const cleanName = fullName.trim();
+    const cleanNick = nickname?.trim() || cleanName.split(" ")[0];
+
+    // 1. Primary: MongoDB Registration via Backend API
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleanName, nickname: cleanNick, email: emailClean, password, role: "user" }),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        const localProfile: UserProfile = {
+          id: data.user.id || "00000000-0000-0000-0000-000000000001",
+          email: data.user.email,
+          full_name: data.user.name,
+          nickname: data.user.nickname,
+          role: (data.user.role === "admin" ? "admin" : "user") as "user" | "admin",
+          is_active: data.user.is_active !== false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        setProfile(localProfile);
+        setUser({ id: localProfile.id, email: localProfile.email } as any);
+        setSession({ access_token: data.token || "mga-token" } as any);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sarla_user_session", JSON.stringify({
+            ...data.user,
+            token: data.token || "mga-token"
+          }));
+          window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
+        }
+        return { success: true, requiresConfirmation: false };
+      } else if (data.message && (data.message.includes("already registered") || data.message.includes("required"))) {
+        return { success: false, error: data.message };
+      }
+    } catch (e: any) {
+      console.warn("[Sarala Auth] MongoDB backend signup fetch error:", e);
+    }
+
+    // 2. Secondary: Supabase Auth fallback
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return { success: false, error: "Authentication service is currently offline." };
+      return { success: false, error: "Registration service is currently offline." };
     }
 
     try {
-      const emailClean = email.trim().toLowerCase();
-      const cleanName = fullName.trim();
-      const cleanNick = nickname?.trim() || cleanName.split(" ")[0];
-
       const { data, error } = await supabase.auth.signUp({
         email: emailClean,
         password,

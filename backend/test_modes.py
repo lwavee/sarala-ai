@@ -26,7 +26,7 @@ def test_normalization():
     assert _normalize_mode("companion") == "love"
     assert _normalize_mode(None) == "normal"
     assert _normalize_mode("unknown_random_mode") == "normal"
-    print("✓ All normalization and backward compatibility assertions passed!")
+    print("[OK] All normalization and backward compatibility assertions passed!")
 
 def test_llm_personality_prompts():
     print("--- Testing LLM Personality Prompts ---")
@@ -53,7 +53,7 @@ def test_llm_personality_prompts():
     # Legacy migration test
     migrated_p = llm._build_personality("developer")
     assert "EXPERT MODE" in migrated_p
-    print("✓ All LLM personality prompt builds verified!")
+    print("[OK] All LLM personality prompt builds verified!")
 
 def test_brain_modes():
     print("--- Testing Brain Processing with Modes ---")
@@ -93,10 +93,10 @@ def test_brain_modes():
     print(f"Normal Greet: {g_normal}")
     assert "Namaste" in g_normal
 
-    print("✓ All Brain mode tests passed successfully!")
+    print("[OK] All Brain mode tests passed successfully!")
 
 if __name__ == "__main__":
     test_normalization()
     test_llm_personality_prompts()
     test_brain_modes()
-    print("\n✨ ALL BACKEND MODE TESTS PASSED! ✨")
+    print("\nALL BACKEND MODE TESTS PASSED!")
