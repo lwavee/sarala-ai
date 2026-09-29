@@ -7,6 +7,7 @@ import {
   Volume2, VolumeX, Radio, Video, RefreshCw, Square, Paperclip
 } from "lucide-react";
 import { getSavedMode, normalizeModeId, SaralaModeId } from "@/lib/modes";
+import { useAuth } from "@/context/AuthContext";
 
 interface Message {
   id: string;
@@ -15,6 +16,7 @@ interface Message {
 }
 
 function ChatbotContent() {
+  const { user, session, profile, isAuthenticated } = useAuth();
   const searchParams = useSearchParams();
   const urlChatId = searchParams.get('id');
 
@@ -363,22 +365,14 @@ function ChatbotContent() {
 
     const currentMode = getSavedMode();
 
-    let userName = "";
-    let userNickname = "";
-    const sessionStr = localStorage.getItem("sarla_user_session");
-    if (sessionStr) {
-      try {
-        const sess = JSON.parse(sessionStr);
-        userName = sess.name || "";
-        userNickname = sess.nickname || "";
-      } catch (e) {}
-    }
-
     const activeChatId = chatId || Date.now().toString();
     if (!chatId) {
       setChatId(activeChatId);
       window.history.replaceState({}, '', `/chatbot?id=${activeChatId}`);
     }
+
+    const userName = profile?.full_name || profile?.nickname || user?.email?.split('@')[0] || "";
+    const userNickname = profile?.nickname || "";
 
     const userMessage: Message = { id: Date.now().toString(), role: "user", text: input };
     const newMessages = [...messages, userMessage];
@@ -390,9 +384,14 @@ function ChatbotContent() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+
       const res = await fetch(`${apiUrl}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ 
           message: userMessage.text, 
           theme_mode: currentMode,

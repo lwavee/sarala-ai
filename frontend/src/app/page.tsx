@@ -7,10 +7,16 @@ import {
   Paperclip, ChevronDown, Send, ChevronRight, MessageSquare
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const router = useRouter();
+  const { user, profile, isAuthenticated, loading } = useAuth();
+
+  const greetingName = isAuthenticated 
+    ? (profile?.nickname || profile?.full_name?.split(" ")[0] || user?.email?.split("@")[0] || "User")
+    : null;
 
   const handleSend = (text: string = inputValue) => {
     if (text.trim()) {
@@ -26,6 +32,15 @@ export default function Home() {
       <main className="flex-1 flex flex-col items-center h-full pt-4 sm:pt-6 md:pt-10 pb-4 sm:pb-6 px-3 sm:px-4 md:px-8 relative overflow-y-auto custom-scrollbar">
         <div className="w-full max-w-3xl flex-1 flex flex-col items-center justify-center mb-4 sm:mb-6">
           
+          {/* Personalized Greeting with Zero-Flash Loading State */}
+          {loading ? (
+            <div className="h-6 w-28 bg-white/10 rounded-full animate-pulse mb-3" />
+          ) : (
+            <div className="text-sm sm:text-base font-bold text-[var(--accent)] mb-2 tracking-tight animate-fade-in flex items-center gap-1.5">
+              <span>{greetingName ? `Hello ${greetingName} 👋` : "Hello 👋"}</span>
+            </div>
+          )}
+
           {/* Top Pill */}
           <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full glass-pill text-[11px] sm:text-xs font-semibold mb-4 sm:mb-6 shadow-xs transition-colors">
             <Sparkles size={13} className="text-amber-500" />

@@ -1,14 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Menu, Search, Bell, Video } from "lucide-react";
+import { Menu, Search, Bell, Video, User, LogIn } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { SARALA_MODES, getSavedMode, normalizeModeId, SaralaModeId } from "@/lib/modes";
+import { useAuth } from "@/context/AuthContext";
 
 export default function TopBar({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => void }) {
   const pathname = usePathname();
   const [activeMode, setActiveMode] = useState<SaralaModeId>("normal");
+  const { user, profile, isAuthenticated, loading, logout } = useAuth();
+
+  const greetingName = isAuthenticated 
+    ? (profile?.nickname || profile?.full_name?.split(" ")[0] || user?.email?.split("@")[0] || "User")
+    : null;
 
   useEffect(() => {
     setActiveMode(getSavedMode());
@@ -63,6 +69,26 @@ export default function TopBar({ onOpenMobileSidebar }: { onOpenMobileSidebar: (
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3.5 shrink-0">
+        {/* Dynamic Personalized Greeting Pill */}
+        {loading ? (
+          <div className="h-8 w-24 rounded-full bg-white/5 animate-pulse hidden sm:block" />
+        ) : isAuthenticated ? (
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[var(--theme-text-primary)] shadow-2xs">
+            <span className="font-semibold text-emerald-400">●</span>
+            <span className="font-bold">Hello {greetingName} 👋</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_auth"))}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] rounded-full bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+            title="Click to sign in with Supabase"
+          >
+            <LogIn size={13} />
+            <span>Hello 👋</span>
+            <span className="font-bold underline ml-0.5">Sign In</span>
+          </button>
+        )}
+
         {/* Compact Mode Indicator Badge */}
         <Link
           href="/settings"

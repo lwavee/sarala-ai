@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   MessageSquare, Plus, Trash2, Settings, Sparkles, X, ChevronDown, Crown
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user, profile, role, isAuthenticated, isAdmin, loading } = useAuth();
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
@@ -23,7 +25,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
     return null;
   });
-  const [userSession, setUserSession] = useState<any>(null);
 
   useEffect(() => {
     const loadHistory = () => {
@@ -35,28 +36,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       }
     };
 
-    const loadSession = () => {
-      try {
-        const sess = localStorage.getItem("sarla_user_session");
-        if (sess) {
-          setUserSession(JSON.parse(sess));
-        } else {
-          setUserSession(null);
-        }
-      } catch (e) {
-        setUserSession(null);
-      }
-    };
-
     loadHistory();
-    loadSession();
     window.addEventListener("sarla_history_updated", loadHistory);
-    window.addEventListener("sarla_auth_updated", loadSession);
-    window.addEventListener("storage", loadSession);
     return () => {
       window.removeEventListener("sarla_history_updated", loadHistory);
-      window.removeEventListener("sarla_auth_updated", loadSession);
-      window.removeEventListener("storage", loadSession);
     };
   }, []);
 
@@ -146,16 +129,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const groupOrder = ["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days", "Older"];
 
-  const userName = userSession?.name || "Navin Panchal";
-  const userRole = userSession?.role === "admin" || userSession?.is_naveen || userSession?.email === "loharavee@gmail.com"
-    ? "Admin (Owner)"
-    : (userSession?.role || "Admin (Owner)");
-  const userInitials = (userName || "NP")
-    .split(" ")
-    .map((n: string) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const userName = isAuthenticated
+    ? (profile?.nickname || profile?.full_name || user?.email?.split("@")[0] || "User")
+    : (loading ? "Loading..." : "Guest");
+
+  const userRole = isAuthenticated
+    ? (isAdmin ? "Administrator (Owner)" : "User")
+    : (loading ? "..." : "Not Signed In");
+
+  const userInitials = isAuthenticated && userName !== "Guest"
+    ? userName.substring(0, 2).toUpperCase()
+    : "G";
 
   const sidebarClasses = `
     w-[280px] max-w-[85vw] md:w-[260px] h-full flex flex-col justify-between p-2.5 sm:p-3 

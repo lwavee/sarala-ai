@@ -2,7 +2,7 @@ import json
 import os
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, cast
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,12 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
+# Legacy profile cache fallback (no passwords stored)
 DEFAULT_USERS = {
     "loharavee@gmail.com": {
         "name": "Naveen",
         "nickname": "avee",
         "email": "loharavee@gmail.com",
-        "password": "Sarla@123",
         "role": "admin",
         "is_naveen": True
     }
@@ -31,7 +31,7 @@ DEFAULT_USERS = {
 class MemoryStorage:
     """
     Handles:
-    - User Authentication & Role Profiles (admin vs user)
+    - User Profiles & Supabase Auth integration
     - Long-term personal memory: saved permanently to Supabase (fallback to memory.json)
     - Short-term chat memory: auto-deletes entries older than 24 hours
     """
@@ -77,101 +77,125 @@ class MemoryStorage:
             try:
                 with open(self.users_filepath, "r", encoding="utf-8") as f:
                     saved_users = json.load(f)
+                    # Strip any legacy passwords from memory
+                    for u in saved_users.values():
+                        if isinstance(u, dict) and "password" in u:
+                            del u["password"]
                     self.users.update(saved_users)
             except Exception as e:
                 logger.error(f"Failed to load users: {e}")
 
     def save_users(self):
         try:
+            # Strip passwords before saving to disk
+            clean_users = {}
+            for k, u in self.users.items():
+                if isinstance(u, dict):
+                    clean_u = dict(u)
+                    clean_u.pop("password", None)
+                    clean_users[k] = clean_u
             with open(self.users_filepath, "w", encoding="utf-8") as f:
-                json.dump(self.users, f, indent=4)
+                json.dump(clean_users, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save users: {e}")
 
     def authenticate_user(self, email: str, password: str) -> Dict[str, Any]:
+        """Authenticates user via official Supabase Auth. Never compares passwords locally."""
         email_clean = email.strip().lower()
-        user = self.users.get(email_clean)
-
-        # Check Supabase profiles if user not found locally
-        if not user and self.use_supabase and self.supabase:
-            try:
-                tbl = self.supabase.table("profiles") if hasattr(self.supabase, "table") else None
-                if tbl is not None:
-                    res = tbl.select("*").eq("email", email_clean).execute()
-                    if res and isinstance(res.data, list) and len(res.data) > 0:
-                        p = res.data[0]
-                        if isinstance(p, dict):
-                            user = {
-                                "name": p.get("full_name", "User"),
-                                "nickname": p.get("nickname", ""),
-                                "email": email_clean,
-                                "password": password,
-                                "role": p.get("role", "user"),
-                                "is_naveen": (email_clean == "loharavee@gmail.com" or p.get("role") == "admin")
-                            }
-                            self.users[email_clean] = user
-                            self.save_users()
-            except Exception as e:
-                logger.warning(f"Error checking profile in Supabase: {e}")
-
-        if user and user.get("password") == password:
-            role = user.get("role") or ("admin" if email_clean == "loharavee@gmail.com" else "user")
-            is_naveen = (email_clean == "loharavee@gmail.com" or role == "admin")
-            return {
-                "success": True,
-                "user": {
-                    "name": user.get("name", "User"),
-                    "nickname": user.get("nickname", ""),
-                    "email": email_clean,
-                    "role": role,
-                    "is_naveen": is_naveen
-                }
-            }
-        return {"success": False, "message": "Invalid email or password"}
-
-    def register_user(self, name: str, nickname: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
-        email_clean = email.strip().lower()
-        if email_clean in self.users:
-            return {"success": False, "message": "Email is already registered"}
-        
-        assigned_role = "admin" if email_clean == "loharavee@gmail.com" else role
-        is_naveen = (email_clean == "loharavee@gmail.com" or assigned_role == "admin")
-        new_user = {
-            "name": name.strip().title(),
-            "nickname": nickname.strip().lower(),
-            "email": email_clean,
-            "password": password,
-            "role": assigned_role,
-            "is_naveen": is_naveen
-        }
-        self.users[email_clean] = new_user
-        self.save_users()
 
         if self.use_supabase and self.supabase:
             try:
-                profile_record = {
+                res = self.supabase.auth.sign_in_with_password(cast(Any, {
                     "email": email_clean,
-                    "role": assigned_role,
-                    "full_name": new_user["name"],
-                    "nickname": new_user["nickname"],
-                    "is_active": True
-                }
-                tbl = self.supabase.table("profiles") if hasattr(self.supabase, "table") else None
-                if tbl is not None:
-                    tbl.upsert(profile_record).execute()
-            except Exception as e:
-                logger.error(f"Failed to save profile to Supabase: {e}")
+                    "password": password
+                }))
+                if res and hasattr(res, "user") and res.user:
+                    user_id = str(res.user.id)
+                    # Fetch profile from profiles table
+                    tbl = self.supabase.table("profiles")
+                    prof_res = tbl.select("*").eq("id", user_id).execute()
+                    p: Dict[str, Any] = {}
+                    if prof_res and isinstance(prof_res.data, list) and len(prof_res.data) > 0:
+                        first_row = prof_res.data[0]
+                        if isinstance(first_row, dict):
+                            p = cast(Dict[str, Any], first_row)
 
-        return {
-            "success": True,
-            "user": {
-                "name": new_user["name"],
-                "nickname": new_user["nickname"],
-                "email": email_clean,
-                "role": assigned_role,
-                "is_naveen": is_naveen
-            }
-        }
+                    user_meta: Dict[str, Any] = getattr(res.user, "user_metadata", {}) or {}
+                    if not isinstance(user_meta, dict):
+                        user_meta = {}
+
+                    role = p.get("role") or "user"
+                    full_name = p.get("full_name") or user_meta.get("full_name") or "User"
+                    nickname = p.get("nickname") or user_meta.get("nickname") or ""
+                    is_active = p.get("is_active", True)
+
+                    token = res.session.access_token if hasattr(res, "session") and res.session else None
+
+                    return {
+                        "success": True,
+                        "token": token,
+                        "user": {
+                            "id": user_id,
+                            "name": full_name,
+                            "nickname": nickname,
+                            "email": email_clean,
+                            "role": role,
+                            "is_active": is_active
+                        }
+                    }
+            except Exception as e:
+                logger.warning(f"Supabase auth failed: {e}")
+                return {"success": False, "message": "Invalid email or password"}
+
+        return {"success": False, "message": "Authentication service unavailable. Please check Supabase configuration."}
+
+    def register_user(self, name: str, nickname: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
+        """Registers user via official Supabase Auth. Default role is always 'user'."""
+        email_clean = email.strip().lower()
+
+        if self.use_supabase and self.supabase:
+            try:
+                clean_name = name.strip().title()
+                clean_nick = nickname.strip().lower()
+                res = self.supabase.auth.sign_up(cast(Any, {
+                    "email": email_clean,
+                    "password": password,
+                    "options": {
+                        "data": {
+                            "full_name": clean_name,
+                            "nickname": clean_nick
+                        }
+                    }
+                }))
+                if res and hasattr(res, "user") and res.user:
+                    user_id = str(res.user.id)
+                    # Ensure profile exists with role = 'user'
+                    tbl = self.supabase.table("profiles")
+                    tbl.upsert({
+                        "id": user_id,
+                        "email": email_clean,
+                        "full_name": clean_name,
+                        "nickname": clean_nick,
+                        "role": "user",  # NEVER automatically grant admin
+                        "is_active": True
+                    }).execute()
+
+                    return {
+                        "success": True,
+                        "user": {
+                            "id": user_id,
+                            "name": clean_name,
+                            "nickname": clean_nick,
+                            "email": email_clean,
+                            "role": "user",
+                            "is_active": True
+                        }
+                    }
+            except Exception as e:
+                logger.error(f"Supabase user registration failed: {e}")
+                return {"success": False, "message": str(e)}
+
+        return {"success": False, "message": "Registration service unavailable. Please check Supabase configuration."}
 
     # ---- Permanent Personal Memory (Supabase) ----
     def load(self):

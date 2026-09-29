@@ -1,7 +1,8 @@
 /**
  * Sarala AI — Admin & Training Client API Service
- * Handles communication with backend and Supabase persistence endpoints.
+ * Handles communication with backend and Supabase persistence endpoints using Bearer tokens.
  */
+import { getSupabaseClient } from "./supabaseClient";
 
 export interface TrainingItem {
   id: string;
@@ -38,12 +39,31 @@ export interface SystemStats {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
 
+async function getAuthHeaders(customToken?: string): Promise<Record<string, string>> {
+  let token = customToken;
+  if (!token) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      token = data.session?.access_token;
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export async function fetchTrainingItems(params?: {
   category?: string;
   search?: string;
   page?: number;
   limit?: number;
-}): Promise<{ success: boolean; items: TrainingItem[]; total: number; source?: string }> {
+}, token?: string): Promise<{ success: boolean; items: TrainingItem[]; total: number; source?: string }> {
   try {
     const url = new URL(`${API_BASE}/api/admin/training`);
     if (params?.category && params.category !== "all") {
@@ -59,7 +79,8 @@ export async function fetchTrainingItems(params?: {
       url.searchParams.set("limit", params.limit.toString());
     }
 
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const headers = await getAuthHeaders(token);
+    const res = await fetch(url.toString(), { headers, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err: any) {
@@ -68,7 +89,7 @@ export async function fetchTrainingItems(params?: {
   }
 }
 
-export async function saveTrainingItem(item: Partial<TrainingItem>): Promise<{
+export async function saveTrainingItem(item: Partial<TrainingItem>, token?: string): Promise<{
   success: boolean;
   item?: TrainingItem;
   saved_to_supabase?: boolean;
@@ -76,9 +97,10 @@ export async function saveTrainingItem(item: Partial<TrainingItem>): Promise<{
   error?: string;
 }> {
   try {
+    const headers = await getAuthHeaders(token);
     const res = await fetch(`${API_BASE}/api/admin/training`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(item),
     });
     return await res.json();
@@ -89,12 +111,14 @@ export async function saveTrainingItem(item: Partial<TrainingItem>): Promise<{
 
 export async function updateTrainingItem(
   id: string,
-  updates: Partial<TrainingItem>
+  updates: Partial<TrainingItem>,
+  token?: string
 ): Promise<{ success: boolean; saved_to_supabase?: boolean; message?: string; error?: string }> {
   try {
+    const headers = await getAuthHeaders(token);
     const res = await fetch(`${API_BASE}/api/admin/training/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(updates),
     });
     return await res.json();
@@ -104,11 +128,14 @@ export async function updateTrainingItem(
 }
 
 export async function deleteTrainingItem(
-  id: string
+  id: string,
+  token?: string
 ): Promise<{ success: boolean; deleted_from_supabase?: boolean; message?: string; error?: string }> {
   try {
+    const headers = await getAuthHeaders(token);
     const res = await fetch(`${API_BASE}/api/admin/training/${id}`, {
       method: "DELETE",
+      headers,
     });
     return await res.json();
   } catch (err: any) {
@@ -116,7 +143,7 @@ export async function deleteTrainingItem(
   }
 }
 
-export async function bulkImportTraining(items: Partial<TrainingItem>[]): Promise<{
+export async function bulkImportTraining(items: Partial<TrainingItem>[], token?: string): Promise<{
   success: boolean;
   count?: number;
   saved_to_supabase?: boolean;
@@ -124,9 +151,10 @@ export async function bulkImportTraining(items: Partial<TrainingItem>[]): Promis
   error?: string;
 }> {
   try {
+    const headers = await getAuthHeaders(token);
     const res = await fetch(`${API_BASE}/api/admin/training/bulk`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ items }),
     });
     return await res.json();
@@ -135,9 +163,10 @@ export async function bulkImportTraining(items: Partial<TrainingItem>[]): Promis
   }
 }
 
-export async function fetchKnowledgeDocs(): Promise<{ success: boolean; documents: KnowledgeDoc[] }> {
+export async function fetchKnowledgeDocs(token?: string): Promise<{ success: boolean; documents: KnowledgeDoc[] }> {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/knowledge`, { cache: "no-store" });
+    const headers = await getAuthHeaders(token);
+    const res = await fetch(`${API_BASE}/api/admin/knowledge`, { headers, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err: any) {
@@ -149,11 +178,12 @@ export async function ingestKnowledgeDoc(data: {
   title: string;
   content: string;
   category: string;
-}): Promise<{ success: boolean; document?: any; chunks_count?: number; error?: string }> {
+}, token?: string): Promise<{ success: boolean; document?: any; chunks_count?: number; error?: string }> {
   try {
+    const headers = await getAuthHeaders(token);
     const res = await fetch(`${API_BASE}/api/admin/knowledge`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(data),
     });
     return await res.json();
@@ -162,9 +192,10 @@ export async function ingestKnowledgeDoc(data: {
   }
 }
 
-export async function fetchAdminStats(): Promise<{ success: boolean; stats: SystemStats }> {
+export async function fetchAdminStats(token?: string): Promise<{ success: boolean; stats: SystemStats }> {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/stats`, { cache: "no-store" });
+    const headers = await getAuthHeaders(token);
+    const res = await fetch(`${API_BASE}/api/admin/stats`, { headers, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err: any) {
@@ -183,12 +214,14 @@ export async function fetchAdminStats(): Promise<{ success: boolean; stats: Syst
   }
 }
 
-export async function verifyUserProfile(email: string): Promise<{
+export async function verifyUserProfile(token?: string): Promise<{
   authenticated: boolean;
-  user?: { name: string; nickname: string; email: string; role: string; is_naveen: boolean };
+  user?: { id: string; name: string; nickname: string; email: string; role: string; is_active: boolean };
 }> {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/me?email=${encodeURIComponent(email)}`, {
+    const headers = await getAuthHeaders(token);
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      headers,
       cache: "no-store",
     });
     if (!res.ok) return { authenticated: false };

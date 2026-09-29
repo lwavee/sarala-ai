@@ -6,7 +6,7 @@ import io
 import urllib.parse
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, HTTPException, Header, Body, UploadFile, File, Form
+from fastapi import FastAPI, Query, HTTPException, Header, Body, UploadFile, File, Form, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +16,7 @@ from core.brain import Brain
 from core.logger import logger
 from core.admin_service import admin_service
 from core.supabase_client import supabase_manager
+from core.auth import CurrentUser, get_current_user, get_current_user_optional, get_current_admin
 from voice.natural_voice import natural_voice_manager, clean_text_for_synthesis
 from voice.voice_service import get_voice_health, synthesize_sarala_voice, VoiceSynthesisError
 
@@ -152,51 +153,29 @@ async def signup(req: SignupRequest):
     return JSONResponse(result)
 
 @app.get("/api/auth/me")
-async def get_current_user_profile(email: str = Query(...)):
-    """Verifies and returns authenticated user's role from Supabase or local storage."""
-    email_clean = email.strip().lower()
-    user = brain.memory.users.get(email_clean)
-    
-    if supabase_manager.is_connected:
-        try:
-            tbl = supabase_manager.table("profiles")
-            if tbl is not None:
-                res = tbl.select("*").eq("email", email_clean).execute()
-                if res and isinstance(res.data, list) and len(res.data) > 0:
-                    profile = res.data[0]
-                    if isinstance(profile, dict):
-                        return {
-                            "authenticated": True,
-                            "user": {
-                                "name": profile.get("full_name", "User"),
-                                "nickname": profile.get("nickname", ""),
-                                "email": email_clean,
-                                "role": profile.get("role", "user"),
-                                "is_naveen": (email_clean == "loharavee@gmail.com" or profile.get("role") == "admin")
-                            }
-                        }
-        except Exception as e:
-            logger.warning(f"Error fetching profile from Supabase: {e}")
-
-    if user:
-        role = user.get("role") or ("admin" if email_clean == "loharavee@gmail.com" else "user")
-        return {
-            "authenticated": True,
-            "user": {
-                "name": user.get("name", "User"),
-                "nickname": user.get("nickname", ""),
-                "email": email_clean,
-                "role": role,
-                "is_naveen": (email_clean == "loharavee@gmail.com" or role == "admin")
-            }
+async def get_current_user_profile(current_user: CurrentUser = Depends(get_current_user)):
+    """Verifies and returns authenticated user's role and profile from Supabase."""
+    return {
+        "authenticated": True,
+        "user": {
+            "id": current_user.id,
+            "name": current_user.full_name,
+            "nickname": current_user.nickname,
+            "email": current_user.email,
+            "role": current_user.role,
+            "is_active": current_user.is_active
         }
-    return JSONResponse({"authenticated": False, "message": "User not found"}, status_code=404)
+    }
 
 # ── AI Chat (With In-Memory Voice Streaming & Zero Disk Clutter) ──────────────
 @app.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(
+    req: ChatRequest,
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional)
+):
     """
     Process user input and return Sarla's response.
+    Uses authenticated Supabase user identity when token is provided, preventing user spoofing.
     Uses RAM streaming (/voice/stream) for voice synthesis to avoid writing permanent files.
     """
     msg = req.message.strip()
@@ -208,13 +187,18 @@ async def chat(req: ChatRequest):
             "audio_url": None
         })
     
-    logger.info(f"Chat: {msg[:40]}... (User: {req.user_name}, Mode: {req.theme_mode}, Live: {req.is_live})")
+    # Priority: Derived authenticated identity -> fallback to request body if guest
+    user_name = current_user.full_name if current_user else (req.user_name or "")
+    user_nickname = current_user.nickname if current_user else (req.user_nickname or "")
+    user_identifier = f"{user_name} ({current_user.id})" if current_user else f"Guest ({req.user_name or 'Anonymous'})"
+
+    logger.info(f"Chat: {msg[:40]}... (User: {user_identifier}, Mode: {req.theme_mode}, Live: {req.is_live})")
     try:
         response = brain.process_input(
             msg, 
             theme_mode=req.theme_mode, 
-            user_name=req.user_name, 
-            user_nickname=req.user_nickname,
+            user_name=user_name, 
+            user_nickname=user_nickname,
             is_live=req.is_live
         )
 
@@ -391,52 +375,69 @@ async def list_training_items(
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200)
+    limit: int = Query(50, ge=1, le=200),
+    admin: CurrentUser = Depends(get_current_admin)
 ):
-    """Fetch paginated training items from Supabase with search & filtering."""
+    """Fetch paginated training items from Supabase with search & filtering (Admin only)."""
     result = admin_service.get_training_items(category=category, search=search, page=page, limit=limit)
     return JSONResponse(result)
 
 @app.post("/api/admin/training")
-async def create_training_item(req: TrainingItemRequest):
-    """Create a new training item and permanently save to Supabase."""
+async def create_training_item(
+    req: TrainingItemRequest,
+    admin: CurrentUser = Depends(get_current_admin)
+):
+    """Create a new training item and permanently save to Supabase (Admin only)."""
     result = admin_service.save_training_item(req.model_dump())
     return JSONResponse(result)
 
 @app.put("/api/admin/training/{item_id}")
-async def update_training_item(item_id: str, updates: Dict[str, Any] = Body(...)):
-    """Update an existing training item in Supabase."""
+async def update_training_item(
+    item_id: str, 
+    updates: Dict[str, Any] = Body(...),
+    admin: CurrentUser = Depends(get_current_admin)
+):
+    """Update an existing training item in Supabase (Admin only)."""
     result = admin_service.update_training_item(item_id, updates)
     return JSONResponse(result)
 
 @app.delete("/api/admin/training/{item_id}")
-async def delete_training_item(item_id: str):
-    """Delete a training item from Supabase."""
+async def delete_training_item(
+    item_id: str,
+    admin: CurrentUser = Depends(get_current_admin)
+):
+    """Delete a training item from Supabase (Admin only)."""
     result = admin_service.delete_training_item(item_id)
     return JSONResponse(result)
 
 @app.post("/api/admin/training/bulk")
-async def bulk_import_training_items(req: BulkTrainingRequest):
-    """Bulk import training items to Supabase."""
+async def bulk_import_training_items(
+    req: BulkTrainingRequest,
+    admin: CurrentUser = Depends(get_current_admin)
+):
+    """Bulk import training items to Supabase (Admin only)."""
     items_dicts = [it.model_dump() for it in req.items]
     result = admin_service.bulk_save_training_items(items_dicts)
     return JSONResponse(result)
 
 @app.get("/api/admin/knowledge")
-async def list_knowledge_documents():
-    """List all ingested knowledge documents."""
+async def list_knowledge_documents(admin: CurrentUser = Depends(get_current_admin)):
+    """List all ingested knowledge documents (Admin only)."""
     docs = admin_service.get_knowledge_documents()
     return JSONResponse({"success": True, "documents": docs})
 
 @app.post("/api/admin/knowledge")
-async def ingest_knowledge_document(req: IngestKnowledgeRequest):
-    """Ingest large knowledge document and chunk for Big Data RAG."""
+async def ingest_knowledge_document(
+    req: IngestKnowledgeRequest,
+    admin: CurrentUser = Depends(get_current_admin)
+):
+    """Ingest large knowledge document and chunk for Big Data RAG (Admin only)."""
     result = admin_service.ingest_document(title=req.title, content=req.content, category=req.category)
     return JSONResponse(result)
 
 @app.get("/api/admin/stats")
-async def get_admin_system_stats():
-    """Get system stats for dashboard telemetry."""
+async def get_admin_system_stats(admin: CurrentUser = Depends(get_current_admin)):
+    """Get system stats for dashboard telemetry (Admin only)."""
     stats = admin_service.get_system_stats()
     return JSONResponse({"success": True, "stats": stats})
 

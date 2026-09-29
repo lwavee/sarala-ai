@@ -45,8 +45,8 @@ import {
   fetchKnowledgeDocs,
   ingestKnowledgeDoc,
   fetchAdminStats,
-  verifyUserProfile,
 } from "@/lib/admin";
+import { useAuth } from "@/context/AuthContext";
 
 const CATEGORIES = [
   { id: "all", label: "All Categories" },
@@ -59,14 +59,11 @@ const CATEGORIES = [
 ];
 
 export default function AdminPage() {
+  const { user, profile, role, isAuthenticated, isAdmin, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "training" | "knowledge" | "users" | "conversations" | "voice" | "system"
   >("training");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
-
-  // User auth state
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
   // Training Mode state
   const [trainingItems, setTrainingItems] = useState<TrainingItem[]>([]);
@@ -98,34 +95,12 @@ export default function AdminPage() {
   // Stats state
   const [stats, setStats] = useState<SystemStats | null>(null);
 
-  // Initialize and check role
+  // Initialize and load data ONLY if authenticated as admin
   useEffect(() => {
-    const sessionStr = localStorage.getItem("sarla_user_session");
-    if (sessionStr) {
-      try {
-        const sessionObj = JSON.parse(sessionStr);
-        setCurrentUser(sessionObj);
-        
-        // Verify role with backend
-        verifyUserProfile(sessionObj.email).then((res) => {
-          if (res.authenticated && res.user?.role === "admin") {
-            setIsAuthorized(true);
-          } else if (sessionObj.is_naveen || sessionObj.email === "loharavee@gmail.com") {
-            setIsAuthorized(true);
-          } else {
-            setIsAuthorized(false);
-          }
-        });
-      } catch (e) {
-        setIsAuthorized(false);
-      }
-    } else {
-      // Default to true for development if Naveen pre-seeded
-      setIsAuthorized(true);
+    if (isAdmin) {
+      loadInitialData();
     }
-
-    loadInitialData();
-  }, []);
+  }, [isAdmin]);
 
   const loadInitialData = async () => {
     loadTrainingData();
@@ -294,6 +269,48 @@ export default function AdminPage() {
     }
     setIsIngesting(false);
   };
+
+  // ── Auth Loading State ──
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] p-6 text-center animate-fade-in">
+        <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-4 animate-spin">
+          <Shield size={28} />
+        </div>
+        <h2 className="text-xl font-bold text-white mb-1">Verifying Administrator Privileges</h2>
+        <p className="text-xs text-slate-400 font-mono">Authenticating with Supabase...</p>
+      </div>
+    );
+  }
+
+  // ── 403 Forbidden: Administrator Role Required ──
+  if (!isAuthenticated || !isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] p-6 text-center animate-fade-in">
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4 shadow-xl shadow-rose-500/10">
+          <Lock size={32} />
+        </div>
+        <h2 className="text-2xl font-black text-white mb-2">403 — Administrator Access Required</h2>
+        <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
+          Access to Sarala AI System Training and Knowledge Administration is strictly restricted to accounts with the <code className="text-pink-400 bg-white/5 px-1.5 py-0.5 rounded">admin</code> database role.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_auth"))}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/25 cursor-pointer"
+          >
+            Sign In with Admin Account
+          </button>
+          <Link
+            href="/"
+            className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all border border-white/10"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-transparent text-slate-100 font-sans relative z-0">

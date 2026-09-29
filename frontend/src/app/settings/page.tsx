@@ -19,23 +19,16 @@ import {
   AlertCircle,
   Cpu,
   Layers,
-  Sparkle
+  Sparkle,
+  ShieldCheck,
+  Fingerprint
 } from "lucide-react";
 import { ALL_MODES, getSavedMode, setSavedMode, SaralaModeId } from "@/lib/modes";
+import { useAuth } from "@/context/AuthContext";
 
 export default function SettingsPage() {
   const [themeMode, setThemeMode] = useState<SaralaModeId>(() => getSavedMode());
-  const [userSession, setUserSession] = useState<any>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const sess = localStorage.getItem("sarla_user_session");
-        return sess ? JSON.parse(sess) : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
+  const { user, session, profile, role, isAuthenticated, isAdmin, loading, login, signup, logout } = useAuth();
   
   // Auth Form State
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -45,36 +38,18 @@ export default function SettingsPage() {
   const [signupNickname, setSignupNickname] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
-  const [authLoading, setAuthLoading] = useState(false);
+  const [formLoading, setFormLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    // Load user session listener
-    const loadSession = () => {
-      try {
-        const sess = localStorage.getItem("sarla_user_session");
-        if (sess) {
-          setUserSession(JSON.parse(sess));
-        } else {
-          setUserSession(null);
-        }
-      } catch (e) {
-        setUserSession(null);
-      }
-    };
-    loadSession();
-
     const handleStorage = () => {
       const mode = getSavedMode();
       setThemeMode(mode);
-      loadSession();
     };
 
     window.addEventListener("storage", handleStorage);
-    window.addEventListener("sarla_auth_updated", loadSession);
     return () => {
       window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sarla_auth_updated", loadSession);
     };
   }, []);
 
@@ -91,92 +66,62 @@ export default function SettingsPage() {
       return;
     }
 
-    setAuthLoading(true);
+    setFormLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
-      const res = await fetch(`${apiUrl}/api/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUserSession(data.user);
-        localStorage.setItem("sarla_user_session", JSON.stringify(data.user));
-        window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
-        window.dispatchEvent(new Event("storage"));
-        setAuthMessage({ type: "success", text: `Welcome back, ${data.user.name || 'User'}!` });
+      const res = await login(loginEmail, loginPassword);
+      if (res.success) {
+        setAuthMessage({ type: "success", text: "Successfully authenticated with Supabase!" });
         setLoginEmail("");
         setLoginPassword("");
       } else {
-        setAuthMessage({ type: "error", text: data.message || "Invalid credentials." });
+        setAuthMessage({ type: "error", text: res.error || "Invalid credentials." });
       }
-    } catch (err) {
-      setAuthMessage({ type: "error", text: "Cannot connect to server. Please check your backend." });
+    } catch (err: any) {
+      setAuthMessage({ type: "error", text: err?.message || "Cannot connect to authentication service." });
     } finally {
-      setAuthLoading(false);
+      setFormLoading(false);
     }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMessage(null);
-    if (!signupName || !signupEmail || !signupPassword) {
+    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim()) {
       setAuthMessage({ type: "error", text: "Please fill in all required fields." });
       return;
     }
 
-    setAuthLoading(true);
+    setFormLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
-      const res = await fetch(`${apiUrl}/api/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: signupName,
-          nickname: signupNickname,
-          email: signupEmail,
-          password: signupPassword,
-          role: signupEmail.toLowerCase() === "loharavee@gmail.com" ? "admin" : "user"
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUserSession(data.user);
-        localStorage.setItem("sarla_user_session", JSON.stringify(data.user));
-        window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
-        window.dispatchEvent(new Event("storage"));
-        setAuthMessage({ type: "success", text: "Account created successfully!" });
+      const res = await signup(signupEmail, signupPassword, signupName, signupNickname);
+      if (res.success) {
+        setAuthMessage({ type: "success", text: "Account created successfully with role 'user'!" });
         setSignupName("");
         setSignupNickname("");
         setSignupEmail("");
         setSignupPassword("");
       } else {
-        setAuthMessage({ type: "error", text: data.message || "Registration failed." });
+        setAuthMessage({ type: "error", text: res.error || "Registration failed." });
       }
-    } catch (err) {
-      setAuthMessage({ type: "error", text: "Cannot connect to server. Please check your backend." });
+    } catch (err: any) {
+      setAuthMessage({ type: "error", text: err?.message || "Cannot connect to authentication service." });
     } finally {
-      setAuthLoading(false);
+      setFormLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("sarla_user_session");
-    setUserSession(null);
-    window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
-    window.dispatchEvent(new Event("storage"));
-    setAuthMessage({ type: "success", text: "Logged out successfully." });
+  const handleLogout = async () => {
+    await logout();
+    setAuthMessage({ type: "success", text: "Logged out successfully from Supabase session." });
   };
 
-  const userInitials = (userSession?.name || "NP")
+  const displayName = profile?.nickname || profile?.full_name || user?.email?.split("@")[0] || "User";
+  const userInitials = displayName
     .split(" ")
     .map((n: string) => n[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-  const isAdmin = userSession?.role === "admin" || userSession?.is_naveen || userSession?.email === "loharavee@gmail.com";
 
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-5 sm:space-y-8 animate-fade-in custom-scrollbar text-[var(--theme-text-primary)]">
@@ -296,7 +241,7 @@ export default function SettingsPage() {
               Account & Credentials
             </h2>
 
-            {userSession ? (
+            {isAuthenticated ? (
               /* Logged In View */
               <div className="space-y-4">
                 <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/70 border border-white/90 shadow-2xs">
@@ -305,12 +250,19 @@ export default function SettingsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-bold text-slate-900 truncate">
-                      {userSession.name || "User"}
+                      {displayName}
                     </div>
-                    <div className="text-xs text-slate-500 truncate font-normal">{userSession.email}</div>
+                    <div className="text-xs text-slate-500 truncate font-normal">{user?.email || profile?.email}</div>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200">
-                        {userSession.role === "admin" || userSession.is_naveen ? "Admin (Owner)" : "User"}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        isAdmin 
+                          ? "text-purple-700 bg-purple-100/70 border-purple-200" 
+                          : "text-emerald-700 bg-emerald-100/70 border-emerald-200"
+                      }`}>
+                        {isAdmin ? "Admin (Owner)" : "User"}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {user?.id ? `UUID: ${user.id.slice(0, 8)}...` : ""}
                       </span>
                     </div>
                   </div>
@@ -319,11 +271,21 @@ export default function SettingsPage() {
                 <div className="p-3.5 rounded-xl bg-white/60 border border-white/80 space-y-1.5 text-xs text-slate-700 shadow-2xs font-medium">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Nickname:</span>
-                    <span className="font-bold text-slate-900">{userSession.nickname || "—"}</span>
+                    <span className="font-bold text-slate-900">{profile?.nickname || "—"}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Memory Sync:</span>
-                    <span className="text-emerald-600 font-bold">Supabase Connected</span>
+                    <span className="text-slate-500">Database Role:</span>
+                    <span className="font-mono font-bold text-slate-900">{role || "user"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Identity:</span>
+                    <span className="text-emerald-600 font-bold">auth.users.id (Supabase)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Account Status:</span>
+                    <span className={`font-bold ${profile?.is_active !== false ? "text-emerald-600" : "text-rose-600"}`}>
+                      {profile?.is_active !== false ? "Active" : "Disabled"}
+                    </span>
                   </div>
                 </div>
 
@@ -378,8 +340,9 @@ export default function SettingsPage() {
                           type="email"
                           value={loginEmail}
                           onChange={(e) => setLoginEmail(e.target.value)}
-                          placeholder="loharavee@gmail.com"
+                          placeholder="you@example.com"
                           className="w-full bg-white/80 border border-white rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
+                          required
                         />
                       </div>
                     </div>
@@ -393,17 +356,18 @@ export default function SettingsPage() {
                           onChange={(e) => setLoginPassword(e.target.value)}
                           placeholder="••••••••"
                           className="w-full bg-white/80 border border-white rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
+                          required
                         />
                       </div>
                     </div>
 
                     <button
                       type="submit"
-                      disabled={authLoading}
+                      disabled={formLoading}
                       className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/25 cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <LogIn size={14} />
-                      <span>{authLoading ? "Logging in..." : "Log In"}</span>
+                      <span>{formLoading ? "Authenticating..." : "Log In"}</span>
                     </button>
                   </form>
                 ) : (
@@ -414,8 +378,9 @@ export default function SettingsPage() {
                         type="text"
                         value={signupName}
                         onChange={(e) => setSignupName(e.target.value)}
-                        placeholder="Navin Panchal"
+                        placeholder="e.g. Deepak Sharma"
                         className="w-full bg-white/80 border border-white rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
+                        required
                       />
                     </div>
                     <div>
@@ -424,7 +389,7 @@ export default function SettingsPage() {
                         type="text"
                         value={signupNickname}
                         onChange={(e) => setSignupNickname(e.target.value)}
-                        placeholder="avee"
+                        placeholder="deepu"
                         className="w-full bg-white/80 border border-white rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
                       />
                     </div>
@@ -434,8 +399,9 @@ export default function SettingsPage() {
                         type="email"
                         value={signupEmail}
                         onChange={(e) => setSignupEmail(e.target.value)}
-                        placeholder="name@example.com"
+                        placeholder="deepak@example.com"
                         className="w-full bg-white/80 border border-white rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
+                        required
                       />
                     </div>
                     <div>
@@ -446,16 +412,17 @@ export default function SettingsPage() {
                         onChange={(e) => setSignupPassword(e.target.value)}
                         placeholder="••••••••"
                         className="w-full bg-white/80 border border-white rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-500 shadow-2xs transition-colors"
+                        required
                       />
                     </div>
 
                     <button
                       type="submit"
-                      disabled={authLoading}
+                      disabled={formLoading}
                       className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/25 cursor-pointer flex items-center justify-center gap-1.5"
                     >
                       <UserPlus size={14} />
-                      <span>{authLoading ? "Creating account..." : "Register"}</span>
+                      <span>{formLoading ? "Creating account..." : "Register"}</span>
                     </button>
                   </form>
                 )}
