@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone, timedelta
 import re
@@ -10,6 +11,8 @@ from core.llm import LLMEngine
 from core.knowledge import knowledge_engine
 from core.learning import LearningEngine
 from core.admin_service import admin_service
+
+logger = logging.getLogger("sarala.brain")
 
 # Mapping of memory keys to human-friendly Hinglish response labels
 KEY_DISPLAY = {
@@ -64,17 +67,29 @@ class Brain:
         user_nickname: str = "",
         is_live: bool = False,
         user_id: str = "",
+        conversation_id: str = "",
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> str:
         mode = _normalize_mode(theme_mode)
         text = user_input.strip()
         if not text:
             return "Kuch to boliye yaar! 😄"
 
-        # Save session user info to memory if provided
-        if user_name:
-            self.memory.remember("user_name", user_name, user_id=user_id)
-        if user_nickname:
-            self.memory.remember("user_nickname", user_nickname, user_id=user_id)
+        # Seed session user info to memory if not already set and not a placeholder
+        if user_id:
+            existing_name = self.memory.recall("user_name", user_id=user_id)
+            if not existing_name and user_name and user_name.strip().lower() not in ("user", "guest", "anonymous"):
+                self.memory.remember("user_name", user_name.strip(), user_id=user_id)
+            existing_nick = self.memory.recall("user_nickname", user_id=user_id)
+            if not existing_nick and user_nickname and user_nickname.strip().lower() not in ("user", "guest", "anonymous"):
+                self.memory.remember("user_nickname", user_nickname.strip(), user_id=user_id)
+        elif not user_id:
+            if user_name and user_name.strip().lower() not in ("user", "guest", "anonymous"):
+                self.memory.remember("user_name", user_name.strip(), user_id="")
+            if user_nickname and user_nickname.strip().lower() not in ("user", "guest", "anonymous"):
+                self.memory.remember("user_nickname", user_nickname.strip(), user_id="")
 
         # ---- Multi-turn: waiting for name after "mera naam yaad rakh" ----
         if self._awaiting_name:
@@ -203,14 +218,38 @@ class Brain:
         # ---- Search (RAG Domain) ----
         if intent_type == "search":
 
-            return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
+            return self._llm_fallback(
+                user_input,
+                domain=domain,
+                theme_mode=mode,
+                is_live=is_live,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                conversation_history=conversation_history,
+                user_name=user_name,
+                user_nickname=user_nickname,
+                model=model,
+                task_type=task_type,
+            )
 
         # ---- Chat ----
         if intent_type == "chat":
             if action == "greet":
                 if mode == "love":
                     # In Love Mode, let the LLM generate a real-time situational greeting (aware of late night, morning, etc.)
-                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
+                    return self._llm_fallback(
+                        user_input,
+                        domain=domain,
+                        theme_mode=mode,
+                        is_live=is_live,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        conversation_history=conversation_history,
+                        user_name=user_name,
+                        user_nickname=user_nickname,
+                        model=model,
+                        task_type=task_type,
+                    )
 
                 name = self.memory.recall("user_name", user_id=user_id)
                 nick = self.memory.recall("user_nickname", user_id=user_id)
@@ -230,7 +269,19 @@ class Brain:
             elif action == "filler":
                 # In Love Mode, if an active conversational thread is running, continue via situational LLM
                 if mode == "love" and len(self.memory.chat_history) >= 2:
-                    return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
+                    return self._llm_fallback(
+                        user_input,
+                        domain=domain,
+                        theme_mode=mode,
+                        is_live=is_live,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        conversation_history=conversation_history,
+                        user_name=user_name,
+                        user_nickname=user_nickname,
+                        model=model,
+                        task_type=task_type,
+                    )
 
                 # Local responses for short fillers when starting fresh
                 if mode == "love":
@@ -271,7 +322,19 @@ class Brain:
             
             else:
                 # Unknown or other chat actions → LLM with full context + RAG
-                return self._llm_fallback(user_input, domain=domain, theme_mode=mode, is_live=is_live, user_id=user_id)
+                return self._llm_fallback(
+                    user_input,
+                    domain=domain,
+                    theme_mode=mode,
+                    is_live=is_live,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    conversation_history=conversation_history,
+                    user_name=user_name,
+                    user_nickname=user_nickname,
+                    model=model,
+                    task_type=task_type,
+                )
 
         return "Kuch samajh nahi aaya 😅 Dobara bolein?"
 
@@ -315,7 +378,12 @@ class Brain:
 
         return "Memory mein kuch karna tha par samajh nahi aaya 🤔"
 
-    def _build_situational_briefing(self, user_input: str, theme_mode: Optional[str] = "normal") -> str:
+    def _build_situational_briefing(
+        self,
+        user_input: str,
+        theme_mode: Optional[str] = "normal",
+        history_turns: Optional[List[str]] = None,
+    ) -> str:
         """
         Synthesizes 5 key situational dimensions:
         1. User's intent (emotional venting, technical, companion check-in, casual banter)
@@ -392,20 +460,24 @@ class Brain:
             intent_str = "General conversation or response to ongoing discussion"
 
         # 4. Continuity with Previous Conversation
-        history = list(self.memory.chat_history)
-        if history and history[-1].get("text", "").strip() == user_input.strip():
-            prev_turns = history[:-1]
-        else:
-            prev_turns = history
-
         continuity_str = "First turn of session."
-        if prev_turns:
-            last_turns = []
-            for item in prev_turns[-4:]:
-                r = "User" if item.get("role") == "user" else "Sarla"
-                t = item.get("text", "")[:80]
-                last_turns.append(f"{r}: {t}")
-            continuity_str = f"Recent conversation flow: {' | '.join(last_turns)}"
+        if history_turns:
+            recent_turns = [t[:80] for t in history_turns[-4:]]
+            continuity_str = f"Recent conversation flow: {' | '.join(recent_turns)}"
+        else:
+            history = list(self.memory.chat_history)
+            if history and history[-1].get("text", "").strip() == user_input.strip():
+                prev_turns = history[:-1]
+            else:
+                prev_turns = history
+
+            if prev_turns:
+                last_turns = []
+                for item in prev_turns[-4:]:
+                    r = "User" if item.get("role") == "user" else "Sarla"
+                    t = item.get("text", "")[:80]
+                    last_turns.append(f"{r}: {t}")
+                continuity_str = f"Recent conversation flow: {' | '.join(last_turns)}"
 
         briefing = (
             f"[SITUATIONAL AWARENESS BRIEFING]\n"
@@ -429,26 +501,16 @@ class Brain:
         theme_mode: Optional[str] = "normal",
         is_live: bool = False,
         user_id: str = "",
+        conversation_id: str = "",
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        user_name: str = "",
+        user_nickname: str = "",
+        model: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> str:
-        """Build rich context from memory + RAG + situational briefing and pass to LLM."""
+        """Build structured, layered AI context using AIContextBuilder and pass to LLM."""
         mode = _normalize_mode(theme_mode)
         self._log("user", user_input)
-
-        # ── Conversational Fact Extraction ──
-        fact_match = re.search(r'(?i)\b(my|your|he is|she is|they are|i am|you are|is)\b\s+([^.!?\n]+)', user_input)
-        if fact_match and "what" not in user_input.lower() and "who" not in user_input.lower():
-            extracted_fact = user_input.strip()
-            # Save it permanently via admin_service to training_items
-            try:
-                admin_service.save_training_item({
-                    "topic": "Conversational Fact",
-                    "category": "personal",
-                    "prompt_pattern": extracted_fact,
-                    "target_response": f"I learned this from you: {extracted_fact}",
-                    "source": "chat_memory"
-                })
-            except Exception as e:
-                print(f"Failed to auto-save fact: {e}")
 
         # ── RAG: Search for technical knowledge and Supabase chunks ────────
         rag_context = ""
@@ -471,31 +533,40 @@ class Brain:
                     rag_context += f"- {title_prefix}{res['content']}\n"
                 used_rag = True
         except Exception as e:
-            print(f"Error in RAG retrieval: {e}")
+            logger.debug(f"Error in RAG retrieval: {e}")
 
         # ── Learning: Retrieve user-taught facts ──────────────
         learned_facts = self.learning.retrieve(user_input)
         if learned_facts:
             rag_context += "\nLearned from previous interactions:\n" + "\n".join(learned_facts)
 
-        # Build context string from user-specific facts + history + situational briefing
-        facts = self.memory.get_all_facts(user_id=user_id)
-        history_ctx = self.memory.get_history_context()
-        situational_briefing = self._build_situational_briefing(user_input, theme_mode=mode)
+        effective_name = user_name or (self.memory.recall("user_name", user_id=user_id) if user_id else "") or ""
+        effective_nick = user_nickname or (self.memory.recall("user_nickname", user_id=user_id) if user_id else "") or ""
 
-        context_parts = []
-        if facts:
-            context_parts.append(facts)
-        if history_ctx:
-            context_parts.append(f"Recent conversation:\n{history_ctx}")
-        if rag_context:
-            context_parts.append(rag_context)
-        if situational_briefing:
-            context_parts.append(situational_briefing)
-            
-        context = "\n\n".join(context_parts)
+        # Centralized Context Builder (Layers 1-6 with strict isolation, budgeting & injection defense)
+        from core.services.ai_context_builder import ai_context_builder
+        built_ctx = ai_context_builder.build_context(
+            user_input=user_input,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            theme_mode=mode,
+            user_name=effective_name,
+            user_nickname=effective_nick,
+            is_live=is_live,
+            domain=domain,
+            rag_context=rag_context if rag_context else None,
+            conversation_history=conversation_history,
+        )
 
-        reply = self.llm.get_response(user_input, external_context=context, theme_mode=mode, is_live=is_live)
+        reply = self.llm.get_response(
+            user_input,
+            external_context=built_ctx.to_prompt_string(),
+            theme_mode=mode,
+            is_live=is_live,
+            built_context=built_ctx,
+            model=model,
+            task_type=task_type,
+        )
         
         if used_rag:
             pass

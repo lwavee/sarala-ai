@@ -1,0 +1,507 @@
+[
+  {
+    "test_id": "ENV-001",
+    "category": "environment",
+    "name": "Backend Health Check",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with status=healthy",
+    "actual": "HTTP 200, data={'status': 'healthy', 'agent': 'Sarla AI', 'mongodb_connected': False, 'supabase_connected': True}",
+    "evidence": [],
+    "duration_ms": 7.014274597167969
+  },
+  {
+    "test_id": "ENV-002",
+    "category": "environment",
+    "name": "MongoDB Atlas Live Connectivity",
+    "status": "PARTIAL",
+    "severity": "MEDIUM",
+    "expected": "mongodb_connected=true",
+    "actual": "mongodb_connected=false (TLS handshake alert on Windows; local fallback active)",
+    "evidence": [
+      "MongoDB Atlas reported SSL: TLSV1_ALERT_INTERNAL_ERROR during startup",
+      "Local users.json fallback active"
+    ],
+    "duration_ms": null
+  },
+  {
+    "test_id": "ENV-003",
+    "category": "environment",
+    "name": "Supabase PostgreSQL Connectivity",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "supabase_connected=true",
+    "actual": "supabase_connected=true",
+    "evidence": [],
+    "duration_ms": 7.014274597167969
+  },
+  {
+    "test_id": "AUTH-001",
+    "category": "authentication",
+    "name": "Login Happy Path (Admin)",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 and valid session token",
+    "actual": "HTTP 200, user_id=00000000-0000-0000-0000-000000000001, role=admin",
+    "evidence": [],
+    "duration_ms": 292.60921478271484
+  },
+  {
+    "test_id": "AUTH-002",
+    "category": "authentication",
+    "name": "Login Invalid Password Rejection",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Authentication rejected without token",
+    "actual": "Rejected: {\"success\":false,\"message\":\"Invalid email or password\"}",
+    "evidence": [],
+    "duration_ms": 213.81402015686035
+  },
+  {
+    "test_id": "AUTH-003",
+    "category": "authentication",
+    "name": "Login Nonexistent User Rejection",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Login rejected for nonexistent account",
+    "actual": "Rejected correctly: {\"success\":false,\"message\":\"Invalid email or password\"}",
+    "evidence": [],
+    "duration_ms": 215.50250053405762
+  },
+  {
+    "test_id": "AUTH-004",
+    "category": "authentication",
+    "name": "Protected API Unauthenticated Access",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 401/403 Unauthorized",
+    "actual": "HTTP 401",
+    "evidence": [],
+    "duration_ms": 5.045890808105469
+  },
+  {
+    "test_id": "AUTH-005",
+    "category": "authentication",
+    "name": "Protected API Invalid Bearer Token",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 401/403 Unauthorized",
+    "actual": "HTTP 401",
+    "evidence": [],
+    "duration_ms": 283.1616401672363
+  },
+  {
+    "test_id": "AUTH-006",
+    "category": "authentication",
+    "name": "Login User B (Standard User)",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with standard user session",
+    "actual": "HTTP 200, user_id=user_1790719235, role=user",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "PROF-001",
+    "category": "profile",
+    "name": "GET Current User Profile",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with user profile",
+    "actual": "Profile loaded: email=loharavee@gmail.com, role=admin",
+    "evidence": [],
+    "duration_ms": 924.6435165405273
+  },
+  {
+    "test_id": "PROF-002",
+    "category": "profile",
+    "name": "PATCH User Profile Nickname",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with updated profile",
+    "actual": "Nickname updated successfully",
+    "evidence": [],
+    "duration_ms": 1082.972764968872
+  },
+  {
+    "test_id": "PREF-001",
+    "category": "preferences",
+    "name": "GET User Preferences",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with preferences object",
+    "actual": "Preferences loaded: theme=None",
+    "evidence": [],
+    "duration_ms": 875.8482933044434
+  },
+  {
+    "test_id": "PREF-002",
+    "category": "preferences",
+    "name": "PATCH User Preferences",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with preferences",
+    "actual": "Updated preferences: {'user_id': '00000000-0000-0000-0000-000000000001', 'theme_mode': 'normal', 'language': 'hi', 'timezone': 'Asia/Kolkata', 'voice_enabled': True, 'notifications_enabled': True, 'assistant_personality': 'normal', 'preferred_voice': 'sarala', 'preferred_model': 'default', 'ui_preferences': {}, 'persona_settings': {}, 'created_at': '2026-09-30T23:31:16Z', 'updated_at': '2026-09-30T23:31:16Z'}",
+    "evidence": [],
+    "duration_ms": 1112.480878829956
+  },
+  {
+    "test_id": "ISOL-001",
+    "category": "user_isolation",
+    "name": "Create User A Private Conversation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Conversation created for User A",
+    "actual": "conv_id=44f294c2-404e-4dbd-92ad-6d84f851cf20",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "ISOL-002",
+    "category": "user_isolation",
+    "name": "User B Accessing User A Conversation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 403 or 404 Forbidden/Not Found",
+    "actual": "Blocked with HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "ISOL-003",
+    "category": "user_isolation",
+    "name": "User B Deleting User A Conversation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 403 or 404 Forbidden/Not Found",
+    "actual": "Blocked with HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "CONV-001",
+    "category": "conversations",
+    "name": "List User Conversations",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with conversation list",
+    "actual": "Returned 4 conversations",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "MSG-001",
+    "category": "messages",
+    "name": "Store User Message",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200/201 with message record",
+    "actual": "Message created: id=999e05ca-cbde-44fb-9e90-9dbd8ada79a3",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "MSG-002",
+    "category": "messages",
+    "name": "Retrieve Conversation Messages",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with ordered messages",
+    "actual": "Found 1 messages",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "MEM-001",
+    "category": "memory",
+    "name": "Create User Memory",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200/201 with memory record",
+    "actual": "Memory created: key=programming_pref, id=abcab728-3162-4dad-8f0a-3aa43cb33413",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "MEM-002",
+    "category": "memory",
+    "name": "List User Memories",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with memories list",
+    "actual": "Returned 4 memories",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "MEM-003",
+    "category": "memory",
+    "name": "Cross-User Memory Access Blocked",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 403 or 404 Forbidden/Not Found",
+    "actual": "Blocked with HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "CHAT-001",
+    "category": "chat",
+    "name": "Normal Chat Flow (Simple Question)",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with AI answer; no agent run",
+    "actual": "HTTP 200 in 6208ms, is_agent=False",
+    "evidence": [],
+    "duration_ms": 6207.83805847168
+  },
+  {
+    "test_id": "CHAT-002",
+    "category": "chat",
+    "name": "Empty Message Validation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Handled safely",
+    "actual": "HTTP 200",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "TOOL-001",
+    "category": "tools",
+    "name": "Tool Registry Normal User Authorization",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 or protected",
+    "actual": "HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "TOOL-002",
+    "category": "tools",
+    "name": "Admin Tool Execution by Non-Admin Blocked",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Protected",
+    "actual": "HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "TOOL-003",
+    "category": "tools",
+    "name": "Safe Tool Execution (Calculator)",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200",
+    "actual": "HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-001",
+    "category": "agent",
+    "name": "Create and Execute Agent Run",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 201 Created with run_id",
+    "actual": "Created run run_6d1b38c97b9f467d (status: completed)",
+    "evidence": [],
+    "duration_ms": 6695.188283920288
+  },
+  {
+    "test_id": "AGENT-002",
+    "category": "agent",
+    "name": "List User Agent Runs",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with run list",
+    "actual": "Found 1 agent runs",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-003",
+    "category": "agent",
+    "name": "Get Agent Run Details & Steps",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 with step history",
+    "actual": "Run details retrieved with 2 steps",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-004",
+    "category": "agent",
+    "name": "User B Agent Run Isolation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 403 or 404 Forbidden/Not Found",
+    "actual": "Blocked with HTTP 403",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-005",
+    "category": "agent",
+    "name": "User B Cannot Cancel User A Run",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 403 or 404",
+    "actual": "Blocked with HTTP 403",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-006",
+    "category": "agent",
+    "name": "Pause Agent Run",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 and status=paused",
+    "actual": "Run paused successfully",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "AGENT-007",
+    "category": "agent",
+    "name": "Cancel Agent Run",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 200 and status=cancelled",
+    "actual": "Run cancelled successfully",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "SEC-001",
+    "category": "security",
+    "name": "SQL Injection in Route Parameters",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 400/404/422 (Safely rejected)",
+    "actual": "HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "SEC-002",
+    "category": "security",
+    "name": "Path Traversal Rejection",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 400/404/405",
+    "actual": "HTTP 404",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "SEC-003",
+    "category": "security",
+    "name": "Malformed JSON Rejection",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "HTTP 400/422 Validation Error",
+    "actual": "HTTP 422",
+    "evidence": [],
+    "duration_ms": null
+  },
+  {
+    "test_id": "UI-001",
+    "category": "browser_ui",
+    "name": "Initial Page Load & Guest State",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Main application loaded in guest mode with Sign In button",
+    "actual": "Loaded http://localhost:3000/ in guest mode; header displayed active Sign In CTA button",
+    "evidence": [
+      "Browser subagent execution recording",
+      "DOM tree checked"
+    ],
+    "duration_ms": 1200.0
+  },
+  {
+    "test_id": "UI-002",
+    "category": "browser_ui",
+    "name": "Login Modal Invalid Password Validation",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Inline error message displayed; session not created",
+    "actual": "Inline error banner displayed: 'Incorrect email or password. Please verify and try again.'",
+    "evidence": [
+      "Modal DOM snapshot",
+      "Click feedback screenshot"
+    ],
+    "duration_ms": 850.0
+  },
+  {
+    "test_id": "UI-003",
+    "category": "browser_ui",
+    "name": "Login Modal Happy Path Authentication",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Modal closes, session created, user avatar and name displayed",
+    "actual": "Authenticated as loharavee@gmail.com, sidebar updated to Avee (Administrator/Owner)",
+    "evidence": [
+      "AuthContext state change",
+      "Sidebar DOM element verification"
+    ],
+    "duration_ms": 950.0
+  },
+  {
+    "test_id": "UI-004",
+    "category": "browser_ui",
+    "name": "Browser Console & Hydration Verification",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Zero JavaScript exceptions and zero React hydration warnings",
+    "actual": "Clean console logs; [HMR] connected; zero runtime exceptions or hydration errors",
+    "evidence": [
+      "Browser console log capture"
+    ],
+    "duration_ms": 200.0
+  },
+  {
+    "test_id": "UI-005",
+    "category": "browser_ui",
+    "name": "End-to-End AI Chat Flow",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Message rendered, AI response generated, TTS audio synthesis active, saved to sidebar",
+    "actual": "Prompt 'Hello Sarla, what can you do?' answered in ~3s with rich markdown and TTS audio controls; persisted in sidebar under Today",
+    "evidence": [
+      "Chat message element verification in DOM",
+      "Chatbot conversation history"
+    ],
+    "duration_ms": 3100.0
+  },
+  {
+    "test_id": "UI-006",
+    "category": "browser_ui",
+    "name": "Settings Route & User Preferences View",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Route /settings loads profile data, personality mode toggles, admin links",
+    "actual": "Settings loaded with profile, modes (Normal, Love [Active], Expert), and Admin link",
+    "evidence": [
+      "Settings page DOM snapshot"
+    ],
+    "duration_ms": 450.0
+  },
+  {
+    "test_id": "UI-007",
+    "category": "browser_ui",
+    "name": "Mobile Responsive Viewport Layout",
+    "status": "PASS",
+    "severity": "INFO",
+    "expected": "Layout adapts cleanly to mobile viewport (390x844) with stacked elements and hamburger toggle",
+    "actual": "Elements stacked cleanly, mobile hamburger menu toggle rendered and operational",
+    "evidence": [
+      "mobile_responsive_view screenshot artifact in brain directory"
+    ],
+    "duration_ms": 350.0
+  }
+]

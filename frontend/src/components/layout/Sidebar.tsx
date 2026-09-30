@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
-  MessageSquare, Plus, Trash2, Settings, Sparkles, X, ChevronDown, Crown
+  MessageSquare, Plus, Trash2, Settings, Sparkles, X, ChevronDown, Crown, Pencil, Check
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -16,8 +16,10 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, role, isAuthenticated, isAdmin, loading } = useAuth();
+  const { user, session, profile, role, isAuthenticated, isAdmin, loading } = useAuth();
   const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState<string>("");
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -27,9 +29,53 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   });
 
   useEffect(() => {
-    const loadHistory = () => {
+    const onAuthUpdated = () => {
+      if (!session?.access_token) {
+        setChatHistory([]);
+        setActiveChatId(null);
+      }
+    };
+    window.addEventListener("sarla_auth_updated", onAuthUpdated);
+    return () => {
+      window.removeEventListener("sarla_auth_updated", onAuthUpdated);
+    };
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      // 1. Fetch from persistent backend API if user is authenticated
+      if (session?.access_token) {
+        try {
+          const res = await fetch(`${apiUrl}/api/conversations`, {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            const convs = json.data || json.conversations || [];
+            if (Array.isArray(convs)) {
+              const mapped = convs.map((c: any) => ({
+                id: c.id,
+                title: c.title || "Conversation",
+                mode: c.mode || "normal",
+                createdAt: new Date(c.created_at || Date.now()).getTime(),
+                updatedAt: new Date(c.last_message_at || c.updated_at || Date.now()).getTime(),
+              }));
+              setChatHistory(mapped);
+              return;
+            }
+          }
+        } catch (err) {
+          console.debug("Backend conversation load error, falling back to local storage:", err);
+        }
+      }
+
+      // 2. Fallback to user-scoped localStorage for guest or offline session
       try {
-        const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+        const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
+        const historyStr = localStorage.getItem(storageKey) || "[]";
         setChatHistory(JSON.parse(historyStr));
       } catch (e) {
         setChatHistory([]);
@@ -41,7 +87,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     return () => {
       window.removeEventListener("sarla_history_updated", loadHistory);
     };
-  }, []);
+  }, [session?.access_token, user?.id]);
 
   useEffect(() => {
     const onOpenChat = (e: any) => {
@@ -86,14 +132,77 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
   };
 
-  const handleDeleteChat = (e: React.MouseEvent, chatId: string) => {
+  const handleStartRename = (e: React.MouseEvent, chat: any) => {
     e.preventDefault();
     e.stopPropagation();
+    setEditingChatId(String(chat.id));
+    setEditTitle(chat.title || "New Conversation");
+  };
+
+  const handleSaveRename = async (e: React.MouseEvent | React.KeyboardEvent, chatId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!editTitle.trim()) {
+      setEditingChatId(null);
+      return;
+    }
+    const newTitle = editTitle.trim();
+    // 1. Backend update
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+    if (session?.access_token) {
+      try {
+        await fetch(`${apiUrl}/api/conversations/${chatId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ title: newTitle }),
+        });
+      } catch (err) {
+        console.debug("Backend conversation rename error:", err);
+      }
+    }
+    // 2. Update local state & cache
+    const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
     try {
-      const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+      const historyStr = localStorage.getItem(storageKey) || "[]";
+      const history = JSON.parse(historyStr);
+      const updated = history.map((h: any) => String(h.id) === String(chatId) ? { ...h, title: newTitle } : h);
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+    } catch (_) {}
+
+    setChatHistory(prev => prev.map(c => String(c.id) === String(chatId) ? { ...c, title: newTitle } : c));
+    setEditingChatId(null);
+    window.dispatchEvent(new CustomEvent("sarla_history_updated"));
+  };
+
+  const handleDeleteChat = async (e: React.MouseEvent, chatId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // 1. Delete on backend if authenticated
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+    if (session?.access_token) {
+      try {
+        await fetch(`${apiUrl}/api/conversations/${chatId}`, {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+        });
+      } catch (err) {
+        console.debug("Backend conversation delete error:", err);
+      }
+    }
+
+    // 2. Remove from user-scoped local storage & state
+    const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
+    try {
+      const historyStr = localStorage.getItem(storageKey) || "[]";
       const history = JSON.parse(historyStr);
       const updated = history.filter((h: any) => String(h.id) !== String(chatId));
-      localStorage.setItem("sarla_chat_history", JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
       setChatHistory(updated);
       window.dispatchEvent(new CustomEvent("sarla_history_updated"));
       if (String(activeChatId) === String(chatId)) {
@@ -216,32 +325,74 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     </div>
                     {chats.map((chat) => {
                       const isActive = String(activeChatId) === String(chat.id);
+                      const isEditing = editingChatId === String(chat.id);
                       return (
                         <div
                           key={chat.id}
-                          onClick={() => handleSelectChat(chat.id)}
+                          onClick={() => !isEditing && handleSelectChat(chat.id)}
                           className={`group/item flex items-center justify-between px-3 py-2.5 min-h-[40px] rounded-xl text-xs cursor-pointer transition-all duration-150 relative active:scale-[0.99] ${
                             isActive
                               ? "bg-[var(--surface-input)] text-[var(--theme-text-primary)] font-semibold shadow-xs border border-[var(--border-color)]"
                               : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--pill-hover)] border border-transparent"
                           }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-1">
-                            <MessageSquare 
-                              size={14} 
-                              className={`shrink-0 ${
-                                isActive ? "text-[var(--accent)]" : "text-[var(--theme-text-muted)] group-hover/item:text-[var(--theme-text-primary)]"
-                              }`} 
-                            />
-                            <span className="truncate">{chat.title || "New Conversation"}</span>
-                          </div>
-                          <button
-                            onClick={(e) => handleDeleteChat(e, chat.id)}
-                            className="opacity-70 sm:opacity-0 sm:group-hover/item:opacity-100 hover:opacity-100 hover:bg-rose-500/20 text-[var(--theme-text-muted)] hover:text-rose-500 p-1.5 min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg transition-all"
-                            title="Delete chat"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          {isEditing ? (
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                value={editTitle}
+                                onChange={(e) => setEditTitle(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveRename(e, chat.id);
+                                  if (e.key === "Escape") setEditingChatId(null);
+                                }}
+                                autoFocus
+                                className="flex-1 bg-[var(--surface-input)] border border-[var(--border-color)] rounded-md px-1.5 py-0.5 text-xs text-[var(--theme-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                              />
+                              <button
+                                onClick={(e) => handleSaveRename(e, chat.id)}
+                                className="p-1 text-emerald-500 hover:text-emerald-400 rounded transition-colors"
+                                title="Save rename"
+                              >
+                                <Check size={13} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingChatId(null); }}
+                                className="p-1 text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] rounded transition-colors"
+                                title="Cancel"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-1">
+                                <MessageSquare 
+                                  size={14} 
+                                  className={`shrink-0 ${
+                                    isActive ? "text-[var(--accent)]" : "text-[var(--theme-text-muted)] group-hover/item:text-[var(--theme-text-primary)]"
+                                  }`} 
+                                />
+                                <span className="truncate">{chat.title || "New Conversation"}</span>
+                              </div>
+                              <div className="flex items-center gap-0.5 opacity-70 sm:opacity-0 sm:group-hover/item:opacity-100 transition-opacity">
+                                <button
+                                  onClick={(e) => handleStartRename(e, chat)}
+                                  className="hover:bg-[var(--surface-button)] text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] p-1.5 min-w-[26px] min-h-[26px] flex items-center justify-center rounded-lg transition-all"
+                                  title="Rename chat"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteChat(e, chat.id)}
+                                  className="hover:bg-rose-500/20 text-[var(--theme-text-muted)] hover:text-rose-500 p-1.5 min-w-[26px] min-h-[26px] flex items-center justify-center rounded-lg transition-all"
+                                  title="Delete chat"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       );
                     })}

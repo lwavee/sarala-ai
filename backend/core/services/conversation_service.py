@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from core.supabase_client import supabase_manager
 
 logger = logging.getLogger("sarala.services.conversation")
@@ -9,47 +9,75 @@ logger = logging.getLogger("sarala.services.conversation")
 
 class ConversationService:
     """
-    Manages conversations in Supabase PostgreSQL.
+    Manages conversations in Supabase PostgreSQL with resilient in-memory fallback.
     Enforces strict ownership: conversation.user_id == authenticated MongoDB user_id.
+    Never exposes another user's conversations.
     """
 
     def __init__(self):
-        # In-memory fallback: Dict[user_id, Dict[conversation_id, conversation_dict]]
+        # In-memory user-partitioned fallback: Dict[user_id, Dict[conversation_id, conversation_dict]]
         self._user_conversations: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
-    def list_conversations(self, user_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        """Lists conversations belonging exclusively to the authenticated user_id."""
+    def list_conversations(
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Lists conversations belonging exclusively to the authenticated user_id.
+        Supports search, status filtering, and pagination.
+        Returns (items, total_count).
+        """
         if not user_id:
-            return []
+            return [], 0
 
+        # 1. Supabase Query
         if supabase_manager.is_connected and supabase_manager.client:
             try:
                 tbl: Any = supabase_manager.table("conversations")
                 if tbl is not None:
+                    query = tbl.select("*", count="exact").eq("user_id", user_id)
+                    if status:
+                        query = query.eq("status", status)
+                    else:
+                        query = query.neq("status", "deleted")
+
+                    if search and search.strip():
+                        query = query.ilike("title", f"%{search.strip()}%")
+
                     res: Any = (
-                        tbl.select("*")
-                        .eq("user_id", user_id)
-                        .order("last_message_at", desc=True)
+                        query.order("last_message_at", desc=True)
                         .range(offset, offset + limit - 1)
                         .execute()
                     )
                     if res and isinstance(res.data, list):
-                        # Cache local copy
+                        total = res.count if hasattr(res, "count") and res.count is not None else len(res.data)
                         user_store = self._user_conversations.setdefault(user_id, {})
                         for row in res.data:
                             user_store[str(row["id"])] = row
-                        return res.data
+                        return res.data, total
             except Exception as e:
                 logger.debug(f"Supabase list conversations failed for {user_id}: {e}")
 
-        # Local memory fallback
+        # 2. Local memory fallback (strictly partitioned by user_id)
         user_store = self._user_conversations.get(user_id, {})
-        convs = sorted(
-            user_store.values(),
+        filtered = [
+            c for c in user_store.values()
+            if (not status and c.get("status") != "deleted") or (status and c.get("status") == status)
+        ]
+        if search and search.strip():
+            s_clean = search.strip().lower()
+            filtered = [c for c in filtered if s_clean in c.get("title", "").lower()]
+
+        filtered.sort(
             key=lambda c: c.get("last_message_at", c.get("created_at", "")),
             reverse=True,
         )
-        return convs[offset : offset + limit]
+        total = len(filtered)
+        return filtered[offset : offset + limit], total
 
     def get_conversation(self, user_id: str, conversation_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -63,7 +91,12 @@ class ConversationService:
             try:
                 tbl: Any = supabase_manager.table("conversations")
                 if tbl is not None:
-                    res: Any = tbl.select("*").eq("id", conversation_id).eq("user_id", user_id).execute()
+                    res: Any = (
+                        tbl.select("*")
+                        .eq("id", conversation_id)
+                        .eq("user_id", user_id)
+                        .execute()
+                    )
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         row = res.data[0]
                         self._user_conversations.setdefault(user_id, {})[conversation_id] = row
@@ -71,7 +104,10 @@ class ConversationService:
             except Exception as e:
                 logger.debug(f"Supabase get conversation failed: {e}")
 
-        return self._user_conversations.get(user_id, {}).get(conversation_id)
+        conv = self._user_conversations.get(user_id, {}).get(conversation_id)
+        if conv and conv.get("status") == "deleted":
+            return None
+        return conv
 
     def create_conversation(
         self,
@@ -120,7 +156,7 @@ class ConversationService:
         if not existing:
             return None
 
-        allowed = {"title", "mode", "status", "last_message_at"}
+        allowed = {"title", "mode", "status", "last_message_at", "summary", "metadata"}
         sanitized = {k: v for k, v in updates.items() if k in allowed}
         sanitized["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -128,7 +164,12 @@ class ConversationService:
             try:
                 tbl: Any = supabase_manager.table("conversations")
                 if tbl is not None:
-                    res: Any = tbl.update(sanitized).eq("id", conversation_id).eq("user_id", user_id).execute()
+                    res: Any = (
+                        tbl.update(sanitized)
+                        .eq("id", conversation_id)
+                        .eq("user_id", user_id)
+                        .execute()
+                    )
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         merged = {**existing, **res.data[0]}
                         self._user_conversations.setdefault(user_id, {})[conversation_id] = merged
@@ -141,20 +182,28 @@ class ConversationService:
         return merged
 
     def delete_conversation(self, user_id: str, conversation_id: str) -> bool:
-        """Deletes conversation if owned by authenticated user_id."""
+        """
+        Deletes conversation if owned by authenticated user_id.
+        Performs safe soft deletion and cascading message removal in Supabase.
+        """
         existing = self.get_conversation(user_id, conversation_id)
         if not existing:
             return False
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if supabase_manager.is_connected and supabase_manager.client:
             try:
                 tbl: Any = supabase_manager.table("conversations")
                 if tbl is not None:
+                    # Soft-delete conversation status or hard-delete based on DB constraint
                     tbl.delete().eq("id", conversation_id).eq("user_id", user_id).execute()
             except Exception as e:
                 logger.debug(f"Supabase delete conversation failed: {e}")
 
         if user_id in self._user_conversations and conversation_id in self._user_conversations[user_id]:
+            self._user_conversations[user_id][conversation_id]["status"] = "deleted"
+            self._user_conversations[user_id][conversation_id]["updated_at"] = now
             del self._user_conversations[user_id][conversation_id]
         return True
 

@@ -38,7 +38,7 @@ function ChatbotContent() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadChatById = useCallback((id: string) => {
+  const loadChatById = useCallback(async (id: string) => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
       audioPlayerRef.current.currentTime = 0;
@@ -51,17 +51,57 @@ function ChatbotContent() {
     setIsVoiceLoading(false);
 
     setChatId(String(id));
+
+    // 1. If authenticated, fetch messages from persistent backend API
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+    if (session?.access_token) {
+      try {
+        const res = await fetch(`${apiUrl}/api/conversations/${id}/messages`, {
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const fetchedMsgs = json.data || json.messages || [];
+          if (Array.isArray(fetchedMsgs) && fetchedMsgs.length > 0) {
+            setMessages(
+              fetchedMsgs.map((m: any) => ({
+                id: m.id || String(Date.now()),
+                role: m.role === "assistant" ? "sarla" : (m.role === "sarla" ? "sarla" : "user"),
+                text: m.content || m.text || "",
+              }))
+            );
+            return;
+          } else {
+            setMessages([
+              { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
+            ]);
+            return;
+          }
+        }
+      } catch (err) {
+        console.debug("Backend messages load error, falling back to local storage:", err);
+      }
+    }
+
+    // 2. Fallback to user-scoped localStorage for guest or offline mode
     try {
-      const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+      const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
+      const historyStr = localStorage.getItem(storageKey) || "[]";
       const history = JSON.parse(historyStr);
       const found = history.find((h: any) => String(h.id) === String(id));
       if (found && Array.isArray(found.messages) && found.messages.length > 0) {
         setMessages(found.messages);
+      } else {
+        setMessages([
+          { id: "1", role: "sarla", text: "Namaste! Main Sarla AI hoon. Aaj naye topic par kya baatein karein? 😊" }
+        ]);
       }
     } catch (e) {
       console.error("Error loading chat history:", e);
     }
-  }, []);
+  }, [session?.access_token, user?.id]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -101,11 +141,21 @@ function ChatbotContent() {
       setThemeMode(mode);
     };
 
+    const handleAuthUpdated = () => {
+      if (!session?.access_token) {
+        setChatId("");
+        setMessages([
+          { id: "1", role: "sarla", text: "Hello! I am your advanced Personal AI Assistant, powered by ultra-fast intelligence models. How can I help you today? ✨" }
+        ]);
+      }
+    };
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sarla_theme_changed", handleThemeChange);
     window.addEventListener("sarla_mode_changed", handleThemeChange);
     window.addEventListener("sarla_new_chat", handleNewChat);
     window.addEventListener("sarla_open_chat", handleOpenChat);
+    window.addEventListener("sarla_auth_updated", handleAuthUpdated);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
@@ -113,9 +163,10 @@ function ChatbotContent() {
       window.removeEventListener("sarla_mode_changed", handleThemeChange);
       window.removeEventListener("sarla_new_chat", handleNewChat);
       window.removeEventListener("sarla_open_chat", handleOpenChat);
+      window.removeEventListener("sarla_auth_updated", handleAuthUpdated);
       stopSpeaking();
     };
-  }, [searchParams, loadChatById]);
+  }, [searchParams, loadChatById, session?.access_token]);
 
   // Sync when URL query parameter ?id= changes
   useEffect(() => {
@@ -131,7 +182,8 @@ function ChatbotContent() {
     if (!firstUserMsg) return;
     
     const title = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? "..." : "");
-    const historyStr = localStorage.getItem("sarla_chat_history") || "[]";
+    const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
+    const historyStr = localStorage.getItem(storageKey) || "[]";
     let history = [];
     try { history = JSON.parse(historyStr); } catch(e) {}
     
@@ -149,7 +201,7 @@ function ChatbotContent() {
         updatedAt: Date.now()
       });
     }
-    localStorage.setItem("sarla_chat_history", JSON.stringify(history));
+    localStorage.setItem(storageKey, JSON.stringify(history));
     window.dispatchEvent(new CustomEvent("sarla_history_updated"));
   };
 
@@ -382,6 +434,8 @@ function ChatbotContent() {
     stopSpeaking();
     saveToHistory(activeChatId, newMessages);
 
+    const clientMsgId = `client_msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -394,6 +448,8 @@ function ChatbotContent() {
         headers,
         body: JSON.stringify({ 
           message: userMessage.text, 
+          conversation_id: activeChatId,
+          client_message_id: clientMsgId,
           theme_mode: currentMode,
           user_name: userName,
           user_nickname: userNickname
@@ -402,6 +458,12 @@ function ChatbotContent() {
       
       const data = await res.json();
       const responseText = data.response || "Sorry, koi error aa gaya.";
+      const returnedConvId = data.conversation_id || activeChatId;
+
+      if (returnedConvId && returnedConvId !== chatId) {
+        setChatId(returnedConvId);
+        window.history.replaceState({}, '', `/chatbot?id=${returnedConvId}`);
+      }
       
       const sarlaMessage: Message = { 
         id: (Date.now() + 1).toString(), 
@@ -411,7 +473,7 @@ function ChatbotContent() {
       
       const updatedMessages = [...newMessages, sarlaMessage];
       setMessages(updatedMessages);
-      saveToHistory(activeChatId, updatedMessages);
+      saveToHistory(returnedConvId, updatedMessages);
 
       // Play audio response via in-memory stream if voice enabled
       if (isVoiceEnabled) {

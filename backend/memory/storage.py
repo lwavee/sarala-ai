@@ -295,68 +295,59 @@ class MemoryStorage:
             }
         }
 
-    # ---- Permanent Personal Memory (Supabase) ----
+    # ---- Permanent Personal Memory (Supabase + User-Partitioned) ----
     def load(self):
-        if self.use_supabase and self.supabase:
-            try:
-                tbl = self.supabase.table("memories") if hasattr(self.supabase, "table") else None
-                if tbl is not None:
-                    response = tbl.select("*").execute()
-                    if response and isinstance(response.data, list):
-                        for row in response.data:
-                            if isinstance(row, dict) and "key" in row and "value" in row:
-                                self.data[str(row["key"])] = row["value"]
-                        logger.info(f"Loaded {len(self.data)} permanent memories from Supabase.")
-                        return
-            except Exception as e:
-                logger.error(f"Failed to load from Supabase, falling back to local memory.json: {e}")
-                
+        # Memory is partitioned per user via memory_service. Legacy global memory.json is only an offline reference.
+        self.user_data: Dict[str, Dict[str, Any]] = {}
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, "r", encoding="utf-8") as f:
-                    self.data = json.load(f)
+                    legacy = json.load(f)
+                    # Assign legacy data strictly to canonical admin partition
+                    admin_id = "00000000-0000-0000-0000-000000000001"
+                    self.user_data[admin_id] = legacy
             except Exception:
-                self.data = {}
+                pass
 
     def save(self):
-        try:
-            with open(self.filepath, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=4)
-        except Exception as e:
-            logger.error(f"Error saving memory.json: {e}")
+        # We preserve existing file for audit/rollback without writing private user data
+        pass
 
     def remember(self, key: str, value: Any, user_id: str = ""):
-        """Save a long-term personal fact permanently, scoped to user_id in Supabase."""
-        self.data[key] = value
+        """Save a long-term personal fact permanently, scoped to user_id."""
+        target_user = user_id or "guest"
+        if not hasattr(self, "user_data"):
+            self.user_data = {}
+        self.user_data.setdefault(target_user, {})[key] = value
 
         if user_id:
             try:
                 from core.services.memory_service import memory_service
                 memory_service.set_memory(user_id=user_id, memory_key=key, memory_value=str(value))
             except Exception as e:
-                logger.debug(f"Failed to set user memory: {e}")
-        elif self.use_supabase and self.supabase:
-            try:
-                tbl = self.supabase.table("memories") if hasattr(self.supabase, "table") else None
-                if tbl is not None:
-                    tbl.upsert({"key": key, "value": str(value)}).execute()
-            except Exception as e:
-                logger.debug(f"Failed to save fallback memory to Supabase: {e}")
-
-        self.save()
+                logger.debug(f"Failed to set user memory in service: {e}")
 
     def recall(self, key: str, user_id: str = ""):
+        """Recall a personal fact strictly scoped to user_id."""
         if user_id:
             try:
                 from core.services.memory_service import memory_service
-                doc = memory_service.get_memory(user_id=user_id, memory_key=key)
+                doc = memory_service.get_memory(user_id=user_id, identifier=key)
                 if doc:
                     return doc.get("memory_value") or doc.get("value")
             except Exception as e:
-                logger.debug(f"Failed to recall user memory: {e}")
-        return self.data.get(key, None)
+                logger.debug(f"Failed to recall user memory from service: {e}")
+            if hasattr(self, "user_data") and user_id in self.user_data:
+                return self.user_data[user_id].get(key)
+            return None
+
+        # Guest partition only
+        if hasattr(self, "user_data"):
+            return self.user_data.get("guest", {}).get(key)
+        return None
 
     def get_all_facts(self, user_id: str = "") -> str:
+        """Returns personal facts belonging exclusively to the specified user_id."""
         if user_id:
             try:
                 from core.services.memory_service import memory_service
@@ -365,11 +356,18 @@ class MemoryStorage:
                     return user_facts
             except Exception as e:
                 logger.debug(f"Failed to get user facts: {e}")
-
-        if not self.data:
+            if hasattr(self, "user_data") and user_id in self.user_data:
+                lines = [f"{k}: {v}" for k, v in self.user_data[user_id].items()]
+                return "Known user facts: " + ", ".join(lines) if lines else ""
             return ""
-        lines = [f"{k}: {v}" for k, v in self.data.items()]
-        return "Known personal facts: " + ", ".join(lines)
+
+        # Guest mode
+        if hasattr(self, "user_data"):
+            guest_facts = self.user_data.get("guest", {})
+            if guest_facts:
+                lines = [f"{k}: {v}" for k, v in guest_facts.items()]
+                return "Known user facts: " + ", ".join(lines)
+        return ""
 
     # ---- Temporary Chat Memory (Auto-deletes after 24 hours) ----
     def _purge_expired_history(self):

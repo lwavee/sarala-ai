@@ -1,7 +1,7 @@
 import os
 import re
 import time
-from typing import Optional
+from typing import Optional, Any, List, Dict
 from dotenv import load_dotenv
 from core.logger import logger
 
@@ -193,175 +193,38 @@ class LLMEngine:
 
         return f"{core_prompt}\n{mode_prompt}"
 
-    def get_response(self, user_input: str, external_context: str = "", theme_mode: Optional[str] = "normal", is_live: bool = False) -> str:
-        """Get ultra-fast response from Groq LPUs or Gemini."""
+    def get_response(
+        self,
+        user_input: str,
+        external_context: str = "",
+        theme_mode: Optional[str] = "normal",
+        is_live: bool = False,
+        built_context: Optional[Any] = None,
+        model: Optional[str] = None,
+        task_type: Optional[str] = None,
+    ) -> str:
+        """Get response via central AIOrchestrator, supporting structured BuiltContext or prompt strings."""
         mode = self._normalize_mode(theme_mode)
-        personality = self._build_personality(mode)
-        
-        # Real-time clock calculation in India Standard Time (IST)
-        from datetime import datetime, timezone, timedelta
-        ist = timezone(timedelta(hours=5, minutes=30))
-        now_ist = datetime.now(ist)
-        hour = now_ist.hour
-        time_12h = now_ist.strftime("%I:%M").lstrip("0")
-        am_pm = now_ist.strftime("%p")
-        if 5 <= hour < 12:
-            period = "subah ke"
-        elif 12 <= hour < 17:
-            period = "dupehar ke"
-        elif 17 <= hour < 20:
-            period = "shaam ke"
-        else:
-            period = "raat ke"
-        date_str = f"{now_ist.strftime('%A')}, {now_ist.day} {now_ist.strftime('%B')} {now_ist.year}"
-        
-        clock_context = (
-            f"[REAL-TIME SYSTEM CLOCK (IST / India): Current time is {period} {time_12h} {am_pm}. Today is {date_str}. "
-            f"When user asks about time or date, answer naturally based on this exact clock.]"
-        )
-        
-        live_instruction = ""
-        if is_live:
-            live_instruction = "\n\n[LIVE VOICE CALL MODE: Keep your response short, conversational, and direct (1-2 natural spoken sentences). Absolutely no markdown headings, code blocks, or bullet lists.]"
 
-        prompt = f"{personality}\n\n{clock_context}{live_instruction}\n\n"
-        if external_context:
-            prompt += f"Context for this conversation:\n{external_context}\n\n"
-        prompt += f"User: {user_input}"
-
-        start_time = time.time()
-
-        # 1. Primary High-Speed Engine: Groq LPU (Sub-second latency)
-        if self.groq_key:
-            for model_name in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
-                try:
-                    from groq import Groq
-                    groq_client = Groq(api_key=self.groq_key)
-                    chat_completion = groq_client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt}],
-                        model=model_name,
-                        max_tokens=350 if is_live else 800,
-                        temperature=0.7,
-                    )
-                    reply = chat_completion.choices[0].message.content or ""
-                    # Strip reasoning tags if present
-                    if "<think>" in reply and "</think>" in reply:
-                        reply = re.sub(r'<think>[\s\S]*?</think>', '', reply).strip()
-                    duration = time.time() - start_time
-                    logger.info(f"Groq ({model_name}) responded in {duration:.2f}s")
-                    if reply:
-                        return reply
-                except Exception as groq_err:
-                    logger.debug(f"Groq {model_name} attempt failed: {groq_err}")
-                    continue
-
-        # 2. Advanced Engine: SiliconFlow
-        if self.siliconflow_client:
-            for model_name in ["deepseek-ai/DeepSeek-V2.5", "Qwen/Qwen2.5-72B-Instruct"]:
-                try:
-                    res = self.siliconflow_client.chat.completions.create(
-                        model=model_name,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=350 if is_live else 800,
-                        temperature=0.7,
-                        stream=False
-                    )
-                    
-                    if hasattr(res, 'choices'):
-                        if res.choices and res.choices[0].message.content:
-                            duration = time.time() - start_time
-                            logger.info(f"SiliconFlow ({model_name}) responded in {duration:.2f}s")
-                            return res.choices[0].message.content
-                    else:
-                        full_content = ""
-                        for chunk in res:
-                            if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
-                                full_content += chunk.choices[0].delta.content
-                        if full_content:
-                            duration = time.time() - start_time
-                            logger.info(f"SiliconFlow ({model_name}) stream responded in {duration:.2f}s")
-                            return full_content
-                except Exception as e:
-                    logger.debug(f"SiliconFlow {model_name} attempt failed: {e}")
-
-        # 3. Advanced Engine: Mistral
-        if self.mistral_client:
-            try:
-                res = self.mistral_client.chat.completions.create(
-                    model="mistral-large-latest",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=350 if is_live else 800,
-                    temperature=0.7,
-                    stream=False
-                )
-                
-                if hasattr(res, 'choices'):
-                    if res.choices and res.choices[0].message.content:
-                        duration = time.time() - start_time
-                        logger.info(f"Mistral responded in {duration:.2f}s")
-                        return res.choices[0].message.content
-                else:
-                    full_content = ""
-                    for chunk in res:
-                        if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
-                            full_content += chunk.choices[0].delta.content
-                    if full_content:
-                        duration = time.time() - start_time
-                        logger.info(f"Mistral stream responded in {duration:.2f}s")
-                        return full_content
-            except Exception as e:
-                logger.debug(f"Mistral attempt failed: {e}")
-
-        # 4. Secondary Engine: Google Gemini (if valid API key available)
-        if self.client and self.api_key and self.api_key.startswith("AIzaSy"):
-            try:
-                # Case 1: New Google GenAI SDK (Client with client.models.generate_content)
-                if hasattr(self.client, "models"):
-                    for model_name in ["gemini-2.0-flash", "gemini-1.5-flash"]:
-                        try:
-                            response = self.client.models.generate_content(
-                                model=model_name,
-                                contents=prompt
-                            )
-                            duration = time.time() - start_time
-                            logger.info(f"Gemini ({model_name}) responded in {duration:.2f}s")
-                            if response and hasattr(response, "text") and response.text:
-                                return response.text
-                        except Exception as m_err:
-                            logger.debug(f"Gemini {model_name} attempt failed: {m_err}")
-                            continue
-                # Case 2: Legacy Google GenerativeAI SDK (GenerativeModel with client.generate_content)
-                elif hasattr(self.client, "generate_content"):
-                    response = self.client.generate_content(prompt)
-                    duration = time.time() - start_time
-                    logger.info(f"Gemini (Legacy) responded in {duration:.2f}s")
-                    if response and hasattr(response, "text") and response.text:
-                        return response.text
-            except Exception as gem_err:
-                logger.warning(f"Gemini attempt failed: {gem_err}")
-
-        # 5. Tertiary Fallback: OpenAI if available
-        if self.openai_client:
-            try:
-                res = self.openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=350 if is_live else 800,
-                    stream=False
-                )
-                
-                if hasattr(res, 'choices'):
-                    if res.choices and res.choices[0].message.content:
-                        return res.choices[0].message.content
-                else:
-                    full_content = ""
-                    for chunk in res:
-                        if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
-                            full_content += chunk.choices[0].delta.content
-                    if full_content:
-                        return full_content
-            except Exception as oai_err:
-                logger.warning(f"OpenAI fallback failed: {oai_err}")
+        try:
+            from ai.orchestrator import ai_orchestrator
+            u_id = getattr(built_context, "user_id", "") or ""
+            c_id = getattr(built_context, "conversation_id", "") or ""
+            response = ai_orchestrator.generate_from_context(
+                user_input=user_input,
+                built_context=built_context,
+                external_context=external_context,
+                theme_mode=mode,
+                model=model,
+                is_live=is_live,
+                task_type=task_type,
+                user_id=u_id,
+                conversation_id=c_id,
+            )
+            if response and response.content:
+                return response.content
+        except Exception as e:
+            logger.warning(f"AIOrchestrator generation error: {e}. Executing mode fallback response...")
 
         if mode == "love":
             return "arrey boss, network thoda atak raha hai lagta hai 😅 ek baar dobara bolo na, main yahin hoon!"

@@ -21,7 +21,14 @@ import {
   Layers,
   Sparkle,
   ShieldCheck,
-  Fingerprint
+  Fingerprint,
+  Brain,
+  Trash2,
+  Search,
+  Plus,
+  RefreshCw,
+  Tag,
+  SlidersHorizontal
 } from "lucide-react";
 import { ALL_MODES, getSavedMode, setSavedMode, SaralaModeId } from "@/lib/modes";
 import { useAuth } from "@/context/AuthContext";
@@ -41,6 +48,17 @@ export default function SettingsPage() {
   const [formLoading, setFormLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Personal Memory Engine State
+  const [memories, setMemories] = useState<any[]>([]);
+  const [memorySearch, setMemorySearch] = useState("");
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryActionMsg, setMemoryActionMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [newType, setNewType] = useState("personal");
+  const [newImportance, setNewImportance] = useState("medium");
+  const [showAddForm, setShowAddForm] = useState(false);
+
   useEffect(() => {
     const handleStorage = () => {
       const mode = getSavedMode();
@@ -53,9 +71,24 @@ export default function SettingsPage() {
     };
   }, []);
 
-  const handleModeChange = (modeId: SaralaModeId) => {
+  const handleModeChange = async (modeId: SaralaModeId) => {
     setThemeMode(modeId);
     setSavedMode(modeId);
+    if (session?.access_token) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        await fetch(`${apiUrl}/api/preferences`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ theme_mode: modeId }),
+        });
+      } catch (err) {
+        console.debug("Error saving preferences to backend:", err);
+      }
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -113,6 +146,105 @@ export default function SettingsPage() {
   const handleLogout = async () => {
     await logout();
     setAuthMessage({ type: "success", text: "Logged out successfully from Supabase session." });
+  };
+
+  const fetchMemories = async () => {
+    if (!session?.access_token) return;
+    setMemoryLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/memories`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setMemories(data.data);
+      }
+    } catch (err) {
+      console.debug("Failed to fetch memories:", err);
+    } finally {
+      setMemoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && session?.access_token) {
+      fetchMemories();
+    } else {
+      setMemories([]);
+    }
+  }, [isAuthenticated, session?.access_token]);
+
+  const handleDeleteMemory = async (identifier: string) => {
+    if (!session?.access_token) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/memories/${identifier}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        setMemories((prev) => prev.filter((m) => m.id !== identifier && m.memory_key !== identifier));
+        setMemoryActionMsg({ type: "success", text: "Memory deleted successfully." });
+      }
+    } catch (err) {
+      setMemoryActionMsg({ type: "error", text: "Failed to delete memory." });
+    }
+  };
+
+  const handleClearAllMemories = async () => {
+    if (!session?.access_token) return;
+    if (!window.confirm("Are you sure you want to clear all your personal memories? This action cannot be undone.")) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/memories`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        setMemories([]);
+        setMemoryActionMsg({ type: "success", text: "All personal memories cleared successfully." });
+      }
+    } catch (err) {
+      setMemoryActionMsg({ type: "error", text: "Failed to clear memories." });
+    }
+  };
+
+  const handleAddOrUpdateMemory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session?.access_token) return;
+    if (!newKey.trim() || !newVal.trim()) {
+      setMemoryActionMsg({ type: "error", text: "Please enter both fact key and value." });
+      return;
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/memories`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          memory_key: newKey.trim(),
+          memory_value: newVal.trim(),
+          memory_type: newType,
+          importance: newImportance,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMemoryActionMsg({ type: "success", text: `Memory '${newKey}' saved successfully!` });
+        setNewKey("");
+        setNewVal("");
+        setShowAddForm(false);
+        fetchMemories();
+      } else {
+        setMemoryActionMsg({ type: "error", text: data.detail || "Failed to save memory." });
+      }
+    } catch (err) {
+      setMemoryActionMsg({ type: "error", text: "Error saving memory." });
+    }
   };
 
   const displayName = profile?.nickname || profile?.full_name || user?.email?.split("@")[0] || "User";
@@ -229,6 +361,230 @@ export default function SettingsPage() {
                 <span className="truncate">System Analytics</span>
               </Link>
             </div>
+          </div>
+
+          {/* Personal Memory & Context Engine Card */}
+          <div className="glass-panel p-6 rounded-3xl relative overflow-hidden space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Brain size={20} className="text-[var(--accent)]" />
+                  <h3 className="text-base font-bold text-[var(--theme-text-primary)]">Personal Memory &amp; Context Engine</h3>
+                  {isAuthenticated && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-700">
+                      {memories.length} facts
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--theme-text-secondary)] font-normal">
+                  Durable user facts remembered across conversations and devices (Supabase persistent storage).
+                </p>
+              </div>
+
+              {isAuthenticated && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="px-3 py-1.5 rounded-xl bg-[var(--accent)] hover:opacity-90 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus size={13} />
+                    <span>{showAddForm ? "Cancel" : "Add Fact"}</span>
+                  </button>
+                  <button
+                    onClick={fetchMemories}
+                    disabled={memoryLoading}
+                    title="Refresh memories"
+                    className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw size={14} className={memoryLoading ? "animate-spin" : ""} />
+                  </button>
+                  {memories.length > 0 && (
+                    <button
+                      onClick={handleClearAllMemories}
+                      title="Clear all memories"
+                      className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 size={13} />
+                      <span>Clear All</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {memoryActionMsg && (
+              <div className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between ${
+                memoryActionMsg.type === "success" ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800 border border-rose-200"
+              }`}>
+                <span>{memoryActionMsg.text}</span>
+                <button onClick={() => setMemoryActionMsg(null)} className="text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+              </div>
+            )}
+
+            {!isAuthenticated ? (
+              <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-xs text-indigo-900 leading-relaxed font-medium flex items-center gap-3">
+                <Database size={24} className="text-indigo-600 shrink-0" />
+                <div>
+                  <span className="font-bold">Private &amp; Partitioned: </span>
+                  Log in with your account to view, edit, and clear your private personal memories across sessions. User A&apos;s memories are never shared with User B.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Add / Correct Memory Form */}
+                {showAddForm && (
+                  <form onSubmit={handleAddOrUpdateMemory} className="p-4 rounded-2xl bg-white/70 border border-slate-200/80 space-y-3 text-xs animate-fade-in">
+                    <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <Tag size={13} className="text-indigo-600" />
+                      <span>Add or Correct Memory Fact</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Fact Key (e.g. favorite_language, city)</label>
+                        <input
+                          type="text"
+                          value={newKey}
+                          onChange={(e) => setNewKey(e.target.value)}
+                          placeholder="e.g. favorite_language"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Fact Value</label>
+                        <input
+                          type="text"
+                          value={newVal}
+                          onChange={(e) => setNewVal(e.target.value)}
+                          placeholder="e.g. Python"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category Type</label>
+                        <select
+                          value={newType}
+                          onChange={(e) => setNewType(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs"
+                        >
+                          <option value="identity">Identity (Name, Nickname)</option>
+                          <option value="preference">Preference (Theme, Mode, Style)</option>
+                          <option value="personal">Personal (City, Habits)</option>
+                          <option value="work">Work (Role, Occupation)</option>
+                          <option value="education">Education (Learning goals)</option>
+                          <option value="technical">Technical (Tech stack, Tools)</option>
+                          <option value="business">Business (Company, Agency)</option>
+                          <option value="project">Project (Main Project)</option>
+                          <option value="communication">Communication (Language, Tone)</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Importance</label>
+                        <select
+                          value={newImportance}
+                          onChange={(e) => setNewImportance(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs"
+                        >
+                          <option value="high">High (Always prioritized)</option>
+                          <option value="medium">Medium (Context-dependent)</option>
+                          <option value="low">Low (Background reference)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-xs transition-all"
+                    >
+                      Save Memory Fact
+                    </button>
+                  </form>
+                )}
+
+                {/* Search Bar */}
+                {memories.length > 0 && (
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={memorySearch}
+                      onChange={(e) => setMemorySearch(e.target.value)}
+                      placeholder="Search memory facts by key, value, or category..."
+                      className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-white/70 border border-slate-200/80 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    />
+                  </div>
+                )}
+
+                {/* Memory Items List */}
+                {memoryLoading ? (
+                  <div className="py-6 text-center text-xs text-slate-500 font-medium">Loading personal memories...</div>
+                ) : memories.length === 0 ? (
+                  <div className="py-8 text-center space-y-1.5">
+                    <Brain size={28} className="mx-auto text-slate-300" />
+                    <p className="text-xs font-semibold text-slate-700">No personal memories saved yet</p>
+                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                      Sarala will automatically remember key facts you tell her during chat (like your name, city, favorite language), or you can click &quot;Add Fact&quot; above.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                    {memories
+                      .filter((m) => {
+                        if (!memorySearch.trim()) return true;
+                        const q = memorySearch.toLowerCase();
+                        return (
+                          m.memory_key?.toLowerCase().includes(q) ||
+                          m.memory_value?.toLowerCase().includes(q) ||
+                          m.memory_type?.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((mem) => {
+                        const imp = String(mem.importance || "medium").toLowerCase();
+                        const impBadgeClass =
+                          imp === "high" || imp === "3" || imp === "3.0"
+                            ? "bg-amber-100 text-amber-800 border-amber-200"
+                            : imp === "medium" || imp === "2" || imp === "2.0"
+                            ? "bg-blue-100 text-blue-800 border-blue-200"
+                            : "bg-slate-100 text-slate-700 border-slate-200";
+
+                        return (
+                          <div
+                            key={mem.id || mem.memory_key}
+                            className="p-3 rounded-2xl bg-white/70 border border-slate-200/70 hover:border-indigo-300 transition-all shadow-2xs flex items-start justify-between gap-2 group"
+                          >
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-indigo-900 truncate">
+                                  {mem.memory_key}
+                                </span>
+                                <span className="px-1.5 py-0.2 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                  {mem.memory_type || "other"}
+                                </span>
+                                <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-semibold border ${impBadgeClass}`}>
+                                  {imp === "3.0" || imp === "3" ? "high" : imp === "2.0" || imp === "2" ? "medium" : imp}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-800 font-medium break-words leading-snug">
+                                {mem.memory_value}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteMemory(mem.id || mem.memory_key)}
+                              title="Delete memory"
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
         </div>
