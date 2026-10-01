@@ -35,7 +35,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from web.app import app
-from core.mongodb_client import generate_token
+from core.mongodb_client import generate_token, mongodb_manager
 from core.services import memory_service, memory_extraction_service, conversation_service, message_service
 
 client = TestClient(app)
@@ -61,6 +61,11 @@ def run_tests():
     # Setup 2 distinct mock users with signed MongoDB tokens
     user_a_id = "11111111-aaaa-1111-aaaa-111111111111"
     user_b_id = "22222222-bbbb-2222-bbbb-222222222222"
+
+    mongodb_manager.enable_test_mock([
+        {"user_id": user_a_id, "email": "usera_mem@test.com", "role": "user", "name": "User A", "is_active": True},
+        {"user_id": user_b_id, "email": "userb_mem@test.com", "role": "user", "name": "User B", "is_active": True},
+    ])
 
     token_a = generate_token({
         "id": user_a_id,

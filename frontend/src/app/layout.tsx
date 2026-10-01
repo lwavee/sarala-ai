@@ -146,7 +146,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <h2 className="text-2xl font-extrabold text-white">Welcome to Sarla AI</h2>
-              <p className="text-xs text-slate-400 mt-1">Sign in with Supabase Auth to sync your permanent identity</p>
+              <p className="text-xs text-slate-400 mt-1">Sign in to your account to sync your permanent identity</p>
             </div>
 
             {/* Tabs */}
@@ -211,7 +211,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                   disabled={authLoading}
                   className="w-full py-3 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium rounded-xl text-sm transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50"
                 >
-                  {authLoading ? "Authenticating with Supabase..." : "Login to Sarla AI"}
+                  {authLoading ? "Signing in..." : "Login to Sarla AI"}
                 </button>
               </form>
             ) : (

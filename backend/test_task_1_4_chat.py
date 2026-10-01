@@ -29,7 +29,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from web.app import app
-from core.mongodb_client import generate_token
+from core.mongodb_client import generate_token, mongodb_manager
 from core.services import conversation_service, message_service
 
 client = TestClient(app)
@@ -70,6 +70,8 @@ def run_tests():
         "role": "user",
         "is_active": True,
     }
+
+    mongodb_manager.enable_test_mock([user_a, user_b])
 
     token_a = generate_token(user_a)
     token_b = generate_token(user_b)

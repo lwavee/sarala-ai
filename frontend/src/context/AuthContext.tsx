@@ -1,14 +1,15 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import type { User, Session } from "@supabase/supabase-js";
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { normalizeModeId } from "@/lib/modes";
 
 export interface UserProfile {
-  id: string; // auth.users.id UUID
+  id: string; // canonical MongoDB UUID user_id
+  user_id?: string;
   email: string;
   full_name: string;
   nickname: string;
+  bio?: string;
   role: "user" | "admin";
   is_active: boolean;
   avatar_url?: string;
@@ -16,9 +17,27 @@ export interface UserProfile {
   updated_at?: string;
 }
 
+export interface AuthUser {
+  id: string;
+  user_id?: string;
+  email: string;
+  role?: "user" | "admin";
+  user_metadata?: {
+    full_name?: string;
+    nickname?: string;
+    role?: string;
+  };
+}
+
+export interface AuthSession {
+  access_token: string;
+  token?: string;
+  user?: AuthUser;
+}
+
 export interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AuthUser | null;
+  session: AuthSession | null;
   profile: UserProfile | null;
   role: "user" | "admin" | null;
   isAuthenticated: boolean;
@@ -33,204 +52,264 @@ export interface AuthContextType {
   ) => Promise<{ success: boolean; error?: string; requiresConfirmation?: boolean }>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  updateProfile: (updates: {
+    full_name?: string;
+    nickname?: string;
+    avatar_url?: string;
+    bio?: string;
+  }) => Promise<{ success: boolean; profile?: UserProfile; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (authUser: User): Promise<UserProfile | null> => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return null;
-
-    try {
-      // 1. Fetch existing profile by auth.users.id
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", authUser.id)
-        .maybeSingle();
-
-      if (error && error.code !== "PGRST116") {
-        console.warn("[Sarala Auth] Profile lookup error:", error.message);
-      }
-
-      if (data) {
-        // Enforce account active status
-        if (data.is_active === false) {
-          console.warn("[Sarala Auth] Account is deactivated. Signing out.");
-          await supabase.auth.signOut();
-          return null;
-        }
-
-        const userProfile: UserProfile = {
-          id: data.id,
-          email: data.email || authUser.email || "",
-          full_name: data.full_name || authUser.user_metadata?.full_name || "User",
-          nickname: data.nickname || authUser.user_metadata?.nickname || "",
-          role: data.role === "admin" ? "admin" : "user",
-          is_active: data.is_active !== false,
-          avatar_url: data.avatar_url,
-          created_at: data.created_at,
-          updated_at: data.updated_at,
-        };
-        return userProfile;
-      }
-
-      // 2. Recovery Strategy: Missing Profile -> Auto-create safe profile with role = 'user'
-      console.info("[Sarala Auth] Missing profile detected. Creating fallback profile for user:", authUser.id);
-      const newProfile: Partial<UserProfile> = {
-        id: authUser.id,
-        email: authUser.email || "",
-        full_name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "User",
-        nickname: authUser.user_metadata?.nickname || "",
-        role: "user", // ALWAYS default to user, never admin
-        is_active: true,
-      };
-
-      const { data: inserted, error: insertError } = await supabase
-        .from("profiles")
-        .insert(newProfile)
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error("[Sarala Auth] Failed to create fallback profile:", insertError.message);
-        // Return in-memory safe profile so user is not blocked
-        return {
-          id: authUser.id,
-          email: authUser.email || "",
-          full_name: authUser.user_metadata?.full_name || "User",
-          nickname: authUser.user_metadata?.nickname || "",
-          role: "user",
-          is_active: true,
-        };
-      }
-
-      return inserted as UserProfile;
-    } catch (err) {
-      console.error("[Sarala Auth] Exception fetching profile:", err);
-      return null;
-    }
-  }, []);
-
-  const refreshProfile = useCallback(async () => {
-    if (!user) return;
-    const prof = await fetchProfile(user);
-    if (prof) setProfile(prof);
-  }, [user, fetchProfile]);
-
-  // Initialize and listen to Supabase Auth state changes
+  // Restore authenticated session strictly from FastAPI / MongoDB Atlas authority
   useEffect(() => {
     let mounted = true;
-    const supabase = getSupabaseClient();
 
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
-    // Initial session restoration
-    supabase.auth.getSession().then(async ({ data: { session: initialSession }, error }) => {
-      if (!mounted) return;
-      if (error) {
-        console.warn("[Sarala Auth] Session recovery error:", error.message);
+    const restoreSession = async () => {
+      if (typeof window === "undefined") {
+        if (mounted) setLoading(false);
+        return;
       }
 
-      if (initialSession?.user) {
-        setSession(initialSession);
-        setUser(initialSession.user);
-        const prof = await fetchProfile(initialSession.user);
-        if (mounted) setProfile(prof);
-      } else {
-        // Fallback: check cached session in localStorage
-        if (typeof window !== "undefined") {
-          try {
-            const cachedStr = localStorage.getItem("sarla_user_session");
-            if (cachedStr) {
-              const cached = JSON.parse(cachedStr);
-              if (cached?.email && cached?.role) {
-                const localProfile: UserProfile = {
-                  id: cached.id || "00000000-0000-0000-0000-000000000001",
-                  email: cached.email,
-                  full_name: cached.name || cached.full_name || "User",
-                  nickname: cached.nickname || "",
-                  role: cached.role === "admin" ? "admin" : "user",
-                  is_active: cached.is_active !== false,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                };
-                setProfile(localProfile);
-                setUser({ id: localProfile.id, email: localProfile.email } as any);
-                setSession({ access_token: cached.token || "local-token" } as any);
-              }
-            }
-          } catch (_) {}
-        }
-      }
+      let activeToken = localStorage.getItem("sarla_auth_token");
 
-      if (mounted) setLoading(false);
-    }).catch(() => {
-      if (typeof window !== "undefined") {
+      // Check legacy session cache if explicit token not yet set
+      if (!activeToken) {
         try {
           const cachedStr = localStorage.getItem("sarla_user_session");
           if (cachedStr) {
             const cached = JSON.parse(cachedStr);
-            if (cached?.email && cached?.role) {
-              const localProfile: UserProfile = {
-                id: cached.id || "00000000-0000-0000-0000-000000000001",
-                email: cached.email,
-                full_name: cached.name || cached.full_name || "User",
-                nickname: cached.nickname || "",
-                role: cached.role === "admin" ? "admin" : "user",
-                is_active: cached.is_active !== false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              };
-              setProfile(localProfile);
-              setUser({ id: localProfile.id, email: localProfile.email } as any);
-              setSession({ access_token: cached.token || "local-token" } as any);
+            if (cached?.token && typeof cached.token === "string" && cached.token.startsWith("mga.")) {
+              activeToken = cached.token;
+              localStorage.setItem("sarla_auth_token", cached.token);
+            } else {
+              localStorage.removeItem("sarla_user_session");
             }
           }
-        } catch (_) {}
-      }
-      if (mounted) setLoading(false);
-    });
-
-    // Real-time Auth State Listener
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      if (!mounted) return;
-
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        if (newSession?.user) {
-          const prof = await fetchProfile(newSession.user);
-          if (mounted) setProfile(prof);
+        } catch {
+          localStorage.removeItem("sarla_user_session");
         }
-      } else if (event === "SIGNED_OUT") {
-        setSession(null);
-        setUser(null);
-        setProfile(null);
       }
 
-      setLoading(false);
-    });
+      if (!activeToken || !activeToken.startsWith("mga.")) {
+        if (mounted) {
+          setUser(null);
+          setSession(null);
+          setProfile(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        const res = await fetch(`${apiUrl}/api/auth/me`, {
+          headers: {
+            "Authorization": `Bearer ${activeToken}`,
+          },
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          // Token is invalid, expired, or account deactivated
+          console.warn("[Sarala Auth] Session expired or invalid on authority check. Clearing session.");
+          localStorage.removeItem("sarla_auth_token");
+          localStorage.removeItem("sarla_user_session");
+          if (mounted) {
+            setUser(null);
+            setSession(null);
+            setProfile(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const json = await res.json();
+        const userData = json.user || json.data;
+        if (userData && mounted) {
+          const canonicalId = userData.user_id || userData.id;
+          const userProfile: UserProfile = {
+            id: canonicalId,
+            user_id: canonicalId,
+            email: userData.email,
+            full_name: userData.full_name || userData.name || "User",
+            nickname: userData.nickname || "",
+            role: userData.role === "admin" ? "admin" : "user",
+            is_active: userData.is_active !== false,
+            avatar_url: userData.avatar_url || "",
+          };
+
+          setProfile(userProfile);
+          setUser({
+            id: canonicalId,
+            user_id: canonicalId,
+            email: userProfile.email,
+            role: userProfile.role,
+            user_metadata: {
+              full_name: userProfile.full_name,
+              nickname: userProfile.nickname,
+              role: userProfile.role,
+            },
+          });
+          setSession({
+            access_token: activeToken,
+            token: activeToken,
+            user: {
+              id: canonicalId,
+              user_id: canonicalId,
+              email: userProfile.email,
+              role: userProfile.role,
+            },
+          });
+
+          // Restore persistent user preferences from Supabase via backend API
+          try {
+            const prefRes = await fetch(`${apiUrl}/api/preferences`, {
+              headers: { "Authorization": `Bearer ${activeToken}` },
+              cache: "no-store",
+            });
+            if (prefRes.ok) {
+              const prefJson = await prefRes.json();
+              const prefs = prefJson.preferences || prefJson.data;
+              if (prefs) {
+                const savedMode = prefs.ai_mode || prefs.theme_mode;
+                if (savedMode && typeof window !== "undefined") {
+                  const norm = normalizeModeId(savedMode);
+                  localStorage.setItem("sarla_theme_mode", norm);
+                  localStorage.setItem("sarla_mode", norm);
+                  window.dispatchEvent(new CustomEvent("sarla_theme_changed", { detail: { mode: norm } }));
+                  window.dispatchEvent(new CustomEvent("sarla_mode_changed", { detail: { mode: norm } }));
+                }
+                if (prefs.voice_enabled !== undefined && typeof window !== "undefined") {
+                  localStorage.setItem("sarla_voice_enabled", String(prefs.voice_enabled));
+                  window.dispatchEvent(new CustomEvent("sarla_voice_changed", { detail: { voice_enabled: prefs.voice_enabled } }));
+                }
+              }
+            }
+          } catch {
+            // Non-blocking preference restore
+          }
+        }
+      } catch (err) {
+        console.warn("[Sarala Auth] Error during authoritative session restoration:", err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    restoreSession();
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, []);
 
-  // Local backend fallback login
-  const localBackendLogin = async (
+  const refreshProfile = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("sarla_auth_token");
+    if (!token) return;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/profile`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const userData = json.profile || json.data;
+        if (userData) {
+          const canonicalId = userData.user_id || userData.id;
+          setProfile({
+            id: canonicalId,
+            user_id: canonicalId,
+            email: userData.email,
+            full_name: userData.full_name || userData.name || "User",
+            nickname: userData.nickname || "",
+            bio: userData.bio || "",
+            role: userData.role === "admin" ? "admin" : "user",
+            is_active: userData.is_active !== false,
+            avatar_url: userData.avatar_url || "",
+            created_at: userData.created_at,
+            updated_at: userData.updated_at,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[Sarala Auth] Failed to refresh profile:", err);
+    }
+  }, []);
+
+  const updateProfile = async (updates: {
+    full_name?: string;
+    nickname?: string;
+    avatar_url?: string;
+    bio?: string;
+  }): Promise<{ success: boolean; profile?: UserProfile; error?: string }> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("sarla_auth_token") : null;
+    if (!token) return { success: false, error: "Not authenticated." };
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      const res = await fetch(`${apiUrl}/api/profile`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify(updates),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.detail || data.message || "Failed to update profile." };
+      }
+
+      const updated = data.profile || data.data;
+      if (updated) {
+        const canonicalId = updated.user_id || updated.id;
+        const newProfile: UserProfile = {
+          id: canonicalId,
+          user_id: canonicalId,
+          email: updated.email || profile?.email || "",
+          full_name: updated.full_name || profile?.full_name || "User",
+          nickname: updated.nickname !== undefined ? updated.nickname : (profile?.nickname || ""),
+          bio: updated.bio !== undefined ? updated.bio : (profile?.bio || ""),
+          role: (updated.role === "admin" ? "admin" : "user"),
+          is_active: updated.is_active !== false,
+          avatar_url: updated.avatar_url || "",
+          created_at: updated.created_at || profile?.created_at,
+          updated_at: updated.updated_at || profile?.updated_at,
+        };
+
+        setProfile(newProfile);
+        setUser((prev) => prev ? {
+          ...prev,
+          user_metadata: {
+            ...prev.user_metadata,
+            full_name: newProfile.full_name,
+            nickname: newProfile.nickname,
+          },
+        } : null);
+
+        return { success: true, profile: newProfile };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: "Network error: Unable to update profile." };
+    }
+  };
+
+  // Authoritative login via FastAPI -> MongoDB Atlas
+  const login = async (
     email: string,
     password: string
   ): Promise<{ success: boolean; error?: string }> => {
@@ -241,88 +320,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       });
+
       const data = await res.json();
-      if (data.success && data.user) {
-        const localProfile: UserProfile = {
-          id: data.user.id || "00000000-0000-0000-0000-000000000001",
-          email: data.user.email,
-          full_name: data.user.name,
-          nickname: data.user.nickname,
-          role: data.user.role === "admin" ? "admin" : "user",
-          is_active: data.user.is_active !== false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.detail || data.message || "Incorrect email or password.",
         };
-        setProfile(localProfile);
-        setUser({ id: localProfile.id, email: localProfile.email } as any);
-        setSession({ access_token: data.token || "local-token" } as any);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("sarla_user_session", JSON.stringify({
-            ...data.user,
-            token: data.token || "local-token"
-          }));
-          window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
-        }
-        return { success: true };
       }
-      return { success: false, error: data.message || "Invalid credentials" };
+
+      const userData = data.user;
+      const token = data.token;
+      const canonicalId = userData.user_id || userData.id;
+
+      const userProfile: UserProfile = {
+        id: canonicalId,
+        user_id: canonicalId,
+        email: userData.email,
+        full_name: userData.full_name || userData.name || "User",
+        nickname: userData.nickname || "",
+        role: userData.role === "admin" ? "admin" : "user",
+        is_active: userData.is_active !== false,
+      };
+
+      setProfile(userProfile);
+      setUser({
+        id: canonicalId,
+        user_id: canonicalId,
+        email: userProfile.email,
+        role: userProfile.role,
+        user_metadata: {
+          full_name: userProfile.full_name,
+          nickname: userProfile.nickname,
+          role: userProfile.role,
+        },
+      });
+      setSession({
+        access_token: token,
+        token,
+        user: {
+          id: canonicalId,
+          user_id: canonicalId,
+          email: userProfile.email,
+          role: userProfile.role,
+        },
+      });
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sarla_auth_token", token);
+        localStorage.setItem("sarla_user_session", JSON.stringify({
+          ...userData,
+          token,
+        }));
+        window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
+
+        // Restore persistent user preferences
+        try {
+          const prefRes = await fetch(`${apiUrl}/api/preferences`, {
+            headers: { "Authorization": `Bearer ${token}` },
+            cache: "no-store",
+          });
+          if (prefRes.ok) {
+            const prefJson = await prefRes.json();
+            const prefs = prefJson.preferences || prefJson.data;
+            if (prefs) {
+              const savedMode = prefs.ai_mode || prefs.theme_mode;
+              if (savedMode) {
+                const norm = normalizeModeId(savedMode);
+                localStorage.setItem("sarla_theme_mode", norm);
+                localStorage.setItem("sarla_mode", norm);
+                window.dispatchEvent(new CustomEvent("sarla_theme_changed", { detail: { mode: norm } }));
+                window.dispatchEvent(new CustomEvent("sarla_mode_changed", { detail: { mode: norm } }));
+              }
+              if (prefs.voice_enabled !== undefined) {
+                localStorage.setItem("sarla_voice_enabled", String(prefs.voice_enabled));
+                window.dispatchEvent(new CustomEvent("sarla_voice_changed", { detail: { voice_enabled: prefs.voice_enabled } }));
+              }
+            }
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      return { success: true };
     } catch (e: any) {
       return { success: false, error: "Network error: Unable to reach authentication server." };
     }
   };
 
-  // Login handler
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // 1. Primary: MongoDB Authentication via Backend API
-    const backendRes = await localBackendLogin(email, password);
-    if (backendRes.success) {
-      return backendRes;
-    }
-    if (backendRes.error && (backendRes.error.includes("Incorrect") || backendRes.error.includes("deactivated"))) {
-      return backendRes;
-    }
-
-    // 2. Secondary fallback: Supabase Auth
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      return backendRes;
-    }
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-
-      if (error) {
-        let friendlyMessage = error.message;
-        if (error.message.includes("Invalid login credentials")) {
-          friendlyMessage = "Incorrect email or password. Please verify and try again.";
-        } else if (error.message.includes("Email not confirmed")) {
-          friendlyMessage = "Please check your inbox and confirm your email address before logging in.";
-        }
-        return { success: false, error: friendlyMessage };
-      }
-
-      if (data.user) {
-        const prof = await fetchProfile(data.user);
-        if (!prof) {
-          return { success: false, error: "Account could not be accessed. It may be inactive or restricted." };
-        }
-        setProfile(prof);
-        setUser(data.user);
-        setSession(data.session);
-        return { success: true };
-      }
-
-      return { success: false, error: "Unable to retrieve user credentials." };
-    } catch (err: any) {
-      console.error("[Sarala Auth] Supabase login fallback exception:", err);
-      return backendRes;
-    }
-  };
-
-  // Signup handler
+  // Authoritative signup via FastAPI -> MongoDB Atlas
   const signup = async (
     email: string,
     password: string,
@@ -333,113 +420,100 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cleanName = fullName.trim();
     const cleanNick = nickname?.trim() || cleanName.split(" ")[0];
 
-    // 1. Primary: MongoDB Registration via Backend API
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
       const res = await fetch(`${apiUrl}/api/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cleanName, nickname: cleanNick, email: emailClean, password, role: "user" }),
+        body: JSON.stringify({
+          name: cleanName,
+          nickname: cleanNick,
+          email: emailClean,
+          password,
+          role: "user",
+        }),
       });
+
       const data = await res.json();
-      if (data.success && data.user) {
-        const localProfile: UserProfile = {
-          id: data.user.id || "00000000-0000-0000-0000-000000000001",
-          email: data.user.email,
-          full_name: data.user.name,
-          nickname: data.user.nickname,
-          role: (data.user.role === "admin" ? "admin" : "user") as "user" | "admin",
-          is_active: data.user.is_active !== false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.detail || data.message || "Registration failed.",
         };
-        setProfile(localProfile);
-        setUser({ id: localProfile.id, email: localProfile.email } as any);
-        setSession({ access_token: data.token || "mga-token" } as any);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("sarla_user_session", JSON.stringify({
-            ...data.user,
-            token: data.token || "mga-token"
-          }));
-          window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
-        }
-        return { success: true, requiresConfirmation: false };
-      } else if (data.message && (data.message.includes("already registered") || data.message.includes("required"))) {
-        return { success: false, error: data.message };
       }
-    } catch (e: any) {
-      console.warn("[Sarala Auth] MongoDB backend signup fetch error:", e);
-    }
 
-    // 2. Secondary: Supabase Auth fallback
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      return { success: false, error: "Registration service is currently offline." };
-    }
+      const userData = data.user;
+      const token = data.token;
+      const canonicalId = userData.user_id || userData.id;
 
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: emailClean,
-        password,
-        options: {
-          data: {
-            full_name: cleanName,
-            nickname: cleanNick,
-          },
+      const userProfile: UserProfile = {
+        id: canonicalId,
+        user_id: canonicalId,
+        email: userData.email,
+        full_name: userData.full_name || userData.name || cleanName,
+        nickname: userData.nickname || cleanNick,
+        role: (userData.role === "admin" ? "admin" : "user") as "user" | "admin",
+        is_active: userData.is_active !== false,
+      };
+
+      setProfile(userProfile);
+      setUser({
+        id: canonicalId,
+        user_id: canonicalId,
+        email: userProfile.email,
+        role: userProfile.role,
+        user_metadata: {
+          full_name: userProfile.full_name,
+          nickname: userProfile.nickname,
+          role: userProfile.role,
+        },
+      });
+      setSession({
+        access_token: token,
+        token,
+        user: {
+          id: canonicalId,
+          user_id: canonicalId,
+          email: userProfile.email,
+          role: userProfile.role,
         },
       });
 
-      if (error) {
-        let friendlyMessage = error.message;
-        if (error.message.includes("User already registered")) {
-          friendlyMessage = "This email is already registered. Please sign in instead.";
-        } else if (error.message.includes("Password should be")) {
-          friendlyMessage = "Password is too weak. Please use at least 6 characters.";
-        }
-        return { success: false, error: friendlyMessage };
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sarla_auth_token", token);
+        localStorage.setItem("sarla_user_session", JSON.stringify({
+          ...userData,
+          token,
+        }));
+        window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
       }
 
-      // Check if email confirmation is required
-      if (data.user && (!data.session || data.user.identities?.length === 0)) {
-        return {
-          success: true,
-          requiresConfirmation: true,
-        };
-      }
-
-      if (data.user) {
-        const prof = await fetchProfile(data.user);
-        setProfile(prof);
-        setUser(data.user);
-        setSession(data.session);
-        return { success: true, requiresConfirmation: false };
-      }
-
-      return { success: false, error: "Registration could not be completed." };
-    } catch (err: any) {
-      console.error("[Sarala Auth] Signup exception:", err);
-      return { success: false, error: "A network error occurred during signup." };
+      return { success: true, requiresConfirmation: false };
+    } catch (e: any) {
+      return { success: false, error: "Network error: Unable to reach authentication server." };
     }
   };
 
-  // Logout handler
+  // Authoritative logout
   const logout = async () => {
-    const supabase = getSupabaseClient();
     try {
-      if (supabase) {
-        await supabase.auth.signOut();
+      const token = typeof window !== "undefined" ? localStorage.getItem("sarla_auth_token") : null;
+      if (token) {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        fetch(`${apiUrl}/api/logout`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+        }).catch(() => {});
       }
-    } catch (err) {
-      console.error("[Sarala Auth] Signout error:", err);
     } finally {
-      // Clear all cached state unconditionally
       setUser(null);
       setSession(null);
       setProfile(null);
-      try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sarla_auth_token");
         localStorage.removeItem("sarla_user_session");
-      } catch (_) {}
-      window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
+        window.dispatchEvent(new CustomEvent("sarla_auth_updated"));
+      }
     }
   };
 
@@ -461,6 +535,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signup,
         logout,
         refreshProfile,
+        updateProfile,
       }}
     >
       {children}

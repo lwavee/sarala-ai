@@ -19,6 +19,7 @@ class APIResponse(BaseModel):
 
 # ── Profile Schemas ───────────────────────────────────────────────────────────
 class ProfileUpdateRequest(BaseModel):
+    model_config = {"extra": "ignore"}
     full_name: Optional[str] = Field(None, max_length=100)
     nickname: Optional[str] = Field(None, max_length=50)
     avatar_url: Optional[str] = Field(None, max_length=500)
@@ -48,7 +49,10 @@ class ProfileResponseData(BaseModel):
 
 
 # ── Preferences Schemas ───────────────────────────────────────────────────────
+ALLOWED_CANONICAL_MODES = {"normal", "love", "expert"}
+
 class PreferencesUpdateRequest(BaseModel):
+    ai_mode: Optional[str] = Field(None, max_length=30)
     theme_mode: Optional[str] = Field(None, max_length=30)
     language: Optional[str] = Field(None, max_length=10)
     timezone: Optional[str] = Field(None, max_length=50)
@@ -60,9 +64,57 @@ class PreferencesUpdateRequest(BaseModel):
     ui_preferences: Optional[Dict[str, Any]] = None
     persona_settings: Optional[Dict[str, Any]] = None
 
+    @field_validator("ai_mode", mode="before")
+    @classmethod
+    def validate_ai_mode(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("ai_mode must be a string")
+        clean = v.strip().lower()
+        if clean not in ALLOWED_CANONICAL_MODES:
+            raise ValueError(f"Invalid ai_mode '{v}'. Allowed canonical modes: 'normal', 'love', 'expert'.")
+        return clean
+
+    @field_validator("theme_mode", mode="before")
+    @classmethod
+    def validate_theme_mode(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("theme_mode must be a string")
+        clean = v.strip().lower()
+        if clean not in ALLOWED_CANONICAL_MODES:
+            raise ValueError(f"Invalid theme_mode '{v}'. Allowed canonical modes: 'normal', 'love', 'expert'.")
+        return clean
+
+    @field_validator("voice_enabled", "notifications_enabled", mode="before")
+    @classmethod
+    def validate_booleans(cls, v):
+        if v is not None and not isinstance(v, bool):
+            raise ValueError("Value must be a boolean (true or false)")
+        return v
+
+    @field_validator("persona_settings", "ui_preferences", mode="before")
+    @classmethod
+    def validate_dicts(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("Must be a JSON object dictionary")
+        # Sanitize any accidental credentials from persona settings
+        sanitized = {}
+        for k, val in v.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in ("password", "secret", "api_key", "token")):
+                continue
+            sanitized[str(k)[:50]] = val
+        return sanitized
+
 
 class PreferencesResponseData(BaseModel):
     user_id: str
+    ai_mode: str = "normal"
     theme_mode: str = "normal"
     language: str = "hi"
     timezone: str = "Asia/Kolkata"
@@ -84,10 +136,21 @@ class CreateConversationRequest(BaseModel):
 
     @field_validator("title", mode="before")
     @classmethod
-    def clean_title(cls, v):
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+    def clean_title(cls, v) -> str:
+        if v is not None:
+            if isinstance(v, str) and v.strip():
+                return v.strip()
         return "New Conversation"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v) -> str:
+        if v is not None:
+            if isinstance(v, str):
+                v_clean = v.strip().lower()
+                if v_clean in {"normal", "love", "expert"}:
+                    return v_clean
+        return "normal"
 
 
 class UpdateConversationRequest(BaseModel):
@@ -100,8 +163,25 @@ class UpdateConversationRequest(BaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def clean_title(cls, v):
-        if isinstance(v, str):
-            return v.strip()
+        if v is not None:
+            if not isinstance(v, str):
+                raise ValueError("title must be a string")
+            v_clean = v.strip()
+            if not v_clean:
+                raise ValueError("title cannot be empty")
+            return v_clean
+        return v
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def validate_mode(cls, v):
+        if v is not None:
+            if not isinstance(v, str):
+                raise ValueError("mode must be a string")
+            v_clean = v.strip().lower()
+            if v_clean not in {"normal", "love", "expert"}:
+                raise ValueError("Invalid mode. Allowed modes: normal, love, expert.")
+            return v_clean
         return v
 
 
@@ -111,6 +191,7 @@ class ConversationResponseData(BaseModel):
     title: str
     mode: str
     status: str
+    message_count: int = 0
     created_at: str
     updated_at: str
     last_message_at: str

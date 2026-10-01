@@ -139,10 +139,20 @@ class MessageService:
         # Update cache
         self._cache.setdefault(conversation_id, []).append(doc)
 
-        # Update conversation timestamp
-        conversation_service.update_conversation(user_id, conversation_id, {"last_message_at": now})
+        # Update conversation timestamp and increment message count
+        current_count = int(conv.get("message_count") or 0) + 1
+        conversation_service.update_conversation(
+            user_id,
+            conversation_id,
+            {"last_message_at": now, "message_count": current_count}
+        )
 
         return doc
+
+    def delete_conversation_messages(self, conversation_id: str) -> None:
+        """Cleans up cached messages when a conversation is deleted."""
+        if conversation_id in self._cache:
+            del self._cache[conversation_id]
 
 
 message_service = MessageService()

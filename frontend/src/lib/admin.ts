@@ -41,11 +41,16 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
 
 async function getAuthHeaders(customToken?: string): Promise<Record<string, string>> {
   let token = customToken;
-  if (!token) {
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const { data } = await supabase.auth.getSession();
-      token = data.session?.access_token;
+  if (!token && typeof window !== "undefined") {
+    token = localStorage.getItem("sarla_auth_token") || undefined;
+    if (!token) {
+      try {
+        const cachedStr = localStorage.getItem("sarla_user_session");
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          token = cached?.token;
+        }
+      } catch {}
     }
   }
 

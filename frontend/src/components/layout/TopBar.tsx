@@ -81,7 +81,7 @@ export default function TopBar({ onOpenMobileSidebar }: { onOpenMobileSidebar: (
           <button
             onClick={() => window.dispatchEvent(new CustomEvent("sarla_open_auth"))}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] rounded-full bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-            title="Click to sign in with Supabase"
+            title="Click to sign in to your account"
           >
             <LogIn size={13} />
             <span>Hello 👋</span>

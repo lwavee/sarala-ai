@@ -149,6 +149,7 @@ class ProfileService:
         """
         User-initiated profile update.
         CRITICAL SECURITY: Strips role, is_active, and user_id to prevent privilege escalation.
+        Synchronizes updated name/nickname metadata to authoritative MongoDB identity.
         """
         allowed_fields = {"full_name", "nickname", "avatar_url", "bio"}
         sanitized = {k: v for k, v in updates.items() if k in allowed_fields}
@@ -164,13 +165,37 @@ class ProfileService:
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         merged = {**existing, **res.data[0]}
                         self._cache[user_id] = merged
+                        self._sync_mongo_metadata(user_id, sanitized)
                         return merged
+                    else:
+                        # Row did not exist yet, upsert it safely
+                        doc = {**existing, **sanitized, "user_id": user_id, "id": user_id}
+                        res_upsert: Any = tbl.upsert(doc, on_conflict="user_id").execute()
+                        if res_upsert and isinstance(res_upsert.data, list) and len(res_upsert.data) > 0:
+                            merged = {**existing, **res_upsert.data[0]}
+                            self._cache[user_id] = merged
+                            self._sync_mongo_metadata(user_id, sanitized)
+                            return merged
             except Exception as e:
                 logger.debug(f"Supabase update profile failed: {e}")
 
         merged = {**existing, **sanitized}
         self._cache[user_id] = merged
+        self._sync_mongo_metadata(user_id, sanitized)
         return merged
+
+    def _sync_mongo_metadata(self, user_id: str, updates: Dict[str, Any]) -> None:
+        """Safely updates full_name and nickname in MongoDB identity if provided."""
+        if "full_name" in updates or "nickname" in updates:
+            try:
+                from core.mongodb_client import mongodb_manager
+                mongodb_manager.update_user_profile_metadata(
+                    user_id=user_id,
+                    full_name=updates.get("full_name"),
+                    nickname=updates.get("nickname")
+                )
+            except Exception as me:
+                logger.debug(f"MongoDB profile metadata sync warning for {user_id}: {me}")
 
 
 profile_service = ProfileService()

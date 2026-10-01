@@ -11,7 +11,7 @@ from ai.tools.implementations.memory_tools import (
     update_user_memory,
     delete_user_memory,
 )
-from ai.tools.implementations.conversation_tools import get_conversation, search_conversations
+from ai.tools.implementations.conversation_tools import get_conversation, search_conversations, create_conversation
 from ai.tools.implementations.admin_tools import get_system_stats
 
 __all__ = [
@@ -25,5 +25,6 @@ __all__ = [
     "delete_user_memory",
     "get_conversation",
     "search_conversations",
+    "create_conversation",
     "get_system_stats",
 ]

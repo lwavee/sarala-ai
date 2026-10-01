@@ -83,6 +83,7 @@ def search_conversations(limit: int = 10, **kwargs: Any) -> Dict[str, Any]:
                     "id": str(c.get("id")),
                     "title": c.get("title", ""),
                     "mode": c.get("mode", "normal"),
+                    "message_count": c.get("message_count", 0),
                     "last_message_at": c.get("last_message_at"),
                 }
                 for c in convs
@@ -90,3 +91,35 @@ def search_conversations(limit: int = 10, **kwargs: Any) -> Dict[str, Any]:
         }
     except Exception as e:
         raise ServiceUnavailableError(f"Failed to list conversations: {str(e)}")
+
+
+def create_conversation(title: str = "New Conversation", mode: str = "normal", **kwargs: Any) -> Dict[str, Any]:
+    """
+    Creates a new conversation strictly owned by the authenticated user.
+    AI-provided or argument-provided user_id is ignored; backend server-injected kwargs["user_id"] is enforced.
+    """
+    user_id = kwargs.get("user_id")
+    if not user_id:
+        raise UnauthorizedError("Authentication required to create conversation.")
+
+    clean_title = str(title).strip() if title else "New Conversation"
+    clean_mode = str(mode).strip().lower() if mode else "normal"
+    if clean_mode not in {"normal", "love", "expert"}:
+        clean_mode = "normal"
+
+    try:
+        conv = conversation_service.create_conversation(
+            user_id=user_id,
+            title=clean_title,
+            mode=clean_mode,
+        )
+        return {
+            "conversation_id": str(conv.get("id")),
+            "title": conv.get("title", "New Conversation"),
+            "mode": conv.get("mode", "normal"),
+            "message_count": conv.get("message_count", 0),
+            "created_at": conv.get("created_at"),
+        }
+    except Exception as e:
+        raise ServiceUnavailableError(f"Failed to create conversation: {str(e)}")
+

@@ -841,7 +841,7 @@ export default function AdminPage() {
             <div className="space-y-6 animate-fade-in">
               <div className="pb-4 border-b border-white/10">
                 <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white">Users & Role Access Control</h1>
-                <p className="text-xs sm:text-sm text-slate-400 mt-1">Manage user roles (`admin` vs `user`) verified directly via Supabase Auth and Profiles table.</p>
+                <p className="text-xs sm:text-sm text-slate-400 mt-1">Manage user roles (`admin` vs `user`) verified directly via MongoDB Atlas Authentication and Supabase Profiles.</p>
               </div>
 
               <div className="glass rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5">

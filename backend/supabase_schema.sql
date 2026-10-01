@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
 CREATE TABLE IF NOT EXISTS public.user_preferences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT UNIQUE NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+  ai_mode TEXT NOT NULL DEFAULT 'normal',
   theme_mode TEXT NOT NULL DEFAULT 'normal',
   language TEXT NOT NULL DEFAULT 'hi',
   timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE IF EXISTS public.user_preferences ADD COLUMN IF NOT EXISTS ai_mode TEXT NOT NULL DEFAULT 'normal';
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON public.user_preferences(user_id);
 
 -- 3. CONVERSATIONS TABLE
@@ -58,13 +60,17 @@ CREATE TABLE IF NOT EXISTS public.conversations (
   title TEXT NOT NULL DEFAULT 'New Conversation',
   mode TEXT NOT NULL DEFAULT 'normal',
   status TEXT NOT NULL DEFAULT 'active',
+  message_count INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   last_message_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE IF EXISTS public.conversations ADD COLUMN IF NOT EXISTS message_count INT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON public.conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_message_at ON public.conversations(last_message_at);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_updated ON public.conversations(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_last_msg ON public.conversations(user_id, last_message_at DESC);
 
 -- 4. MESSAGES TABLE
 CREATE TABLE IF NOT EXISTS public.messages (

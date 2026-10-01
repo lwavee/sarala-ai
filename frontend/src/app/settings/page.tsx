@@ -28,14 +28,17 @@ import {
   Plus,
   RefreshCw,
   Tag,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Volume2,
+  VolumeX,
+  Edit3
 } from "lucide-react";
 import { ALL_MODES, getSavedMode, setSavedMode, SaralaModeId } from "@/lib/modes";
 import { useAuth } from "@/context/AuthContext";
 
 export default function SettingsPage() {
   const [themeMode, setThemeMode] = useState<SaralaModeId>(() => getSavedMode());
-  const { user, session, profile, role, isAuthenticated, isAdmin, loading, login, signup, logout } = useAuth();
+  const { user, session, profile, role, isAuthenticated, isAdmin, loading, login, signup, logout, updateProfile } = useAuth();
   
   // Auth Form State
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -47,6 +50,44 @@ export default function SettingsPage() {
   const [signupPassword, setSignupPassword] = useState("");
   const [formLoading, setFormLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Voice Preference State
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("sarla_voice_enabled") !== "false";
+    }
+    return true;
+  });
+
+  // Profile Edit State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editFullName, setEditFullName] = useState("");
+  const [editNickname, setEditNickname] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (profile) {
+      setEditFullName(profile.full_name || "");
+      setEditNickname(profile.nickname || "");
+      setEditBio(profile.bio || "");
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    const handleVoiceStorage = (e: any) => {
+      if (e?.detail?.voice_enabled !== undefined) {
+        setVoiceEnabled(Boolean(e.detail.voice_enabled));
+      } else if (typeof window !== "undefined") {
+        setVoiceEnabled(localStorage.getItem("sarla_voice_enabled") !== "false");
+      }
+    };
+    window.addEventListener("sarla_voice_changed", handleVoiceStorage);
+    return () => {
+      window.removeEventListener("sarla_voice_changed", handleVoiceStorage);
+    };
+  }, []);
 
   // Personal Memory Engine State
   const [memories, setMemories] = useState<any[]>([]);
@@ -83,11 +124,58 @@ export default function SettingsPage() {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ theme_mode: modeId }),
+          body: JSON.stringify({ theme_mode: modeId, ai_mode: modeId }),
         });
       } catch (err) {
         console.debug("Error saving preferences to backend:", err);
       }
+    }
+  };
+
+  const handleVoiceToggle = async (enabled: boolean) => {
+    setVoiceEnabled(enabled);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("sarla_voice_enabled", String(enabled));
+      window.dispatchEvent(new CustomEvent("sarla_voice_changed", { detail: { voice_enabled: enabled } }));
+    }
+    if (session?.access_token) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+        await fetch(`${apiUrl}/api/preferences`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ voice_enabled: enabled }),
+        });
+      } catch (err) {
+        console.debug("Error saving voice preferences to backend:", err);
+      }
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateProfile) return;
+    setProfileSaving(true);
+    setProfileMsg(null);
+    try {
+      const res = await updateProfile({
+        full_name: editFullName.trim(),
+        nickname: editNickname.trim(),
+        bio: editBio.trim(),
+      });
+      if (res.success) {
+        setProfileMsg({ type: "success", text: "Profile updated successfully!" });
+        setIsEditingProfile(false);
+      } else {
+        setProfileMsg({ type: "error", text: res.error || "Failed to update profile." });
+      }
+    } catch (err: any) {
+      setProfileMsg({ type: "error", text: err?.message || "Error updating profile." });
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -103,7 +191,7 @@ export default function SettingsPage() {
     try {
       const res = await login(loginEmail, loginPassword);
       if (res.success) {
-        setAuthMessage({ type: "success", text: "Successfully authenticated with Supabase!" });
+        setAuthMessage({ type: "success", text: "Successfully authenticated with MongoDB Atlas!" });
         setLoginEmail("");
         setLoginPassword("");
       } else {
@@ -145,7 +233,7 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     await logout();
-    setAuthMessage({ type: "success", text: "Logged out successfully from Supabase session." });
+    setAuthMessage({ type: "success", text: "Logged out successfully." });
   };
 
   const fetchMemories = async () => {
@@ -322,6 +410,46 @@ export default function SettingsPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Voice & Audio Preferences Card */}
+          <div className="glass-panel p-4 sm:p-6 rounded-2xl sm:rounded-3xl relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <h2 className="text-base sm:text-lg font-bold text-[var(--theme-text-primary)] flex items-center gap-2">
+                  <Volume2 size={18} className="text-[var(--accent)]" />
+                  Voice &amp; Audio Output
+                </h2>
+                <p className="text-xs text-[var(--theme-text-secondary)] font-medium">
+                  Enable or disable persistent neural voice streaming responses for AI interactions.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleVoiceToggle(!voiceEnabled)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  voiceEnabled ? "bg-[var(--accent)]" : "bg-slate-300 dark:bg-slate-700"
+                }`}
+                title={voiceEnabled ? "Disable Voice Output" : "Enable Voice Output"}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    voiceEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-[var(--theme-text-secondary)]">
+              {voiceEnabled ? (
+                <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                  <Volume2 size={14} /> Voice Responses Active
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-slate-500">
+                  <VolumeX size={14} /> Voice Responses Muted
+                </span>
+              )}
             </div>
           </div>
 
@@ -624,26 +752,106 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-white/60 border border-white/80 space-y-1.5 text-xs text-slate-700 shadow-2xs font-medium">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Nickname:</span>
-                    <span className="font-bold text-slate-900">{profile?.nickname || "—"}</span>
+                {isEditingProfile ? (
+                  <form onSubmit={handleSaveProfile} className="space-y-3 p-3.5 rounded-xl bg-white/70 border border-white/90 shadow-2xs text-xs">
+                    <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                      <span className="font-bold text-slate-900">Edit Profile</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingProfile(false)}
+                        className="text-slate-400 hover:text-slate-700 text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        value={editFullName}
+                        onChange={(e) => setEditFullName(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-indigo-500"
+                        maxLength={100}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Nickname</label>
+                      <input
+                        type="text"
+                        value={editNickname}
+                        onChange={(e) => setEditNickname(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-indigo-500"
+                        maxLength={50}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Bio</label>
+                      <textarea
+                        value={editBio}
+                        onChange={(e) => setEditBio(e.target.value)}
+                        rows={2}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-indigo-500 resize-none"
+                        maxLength={1000}
+                        placeholder="Tell Sarla AI about yourself..."
+                      />
+                    </div>
+                    {profileMsg && (
+                      <div className={`p-2 rounded-lg text-[11px] font-semibold ${
+                        profileMsg.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+                      }`}>
+                        {profileMsg.text}
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={profileSaving}
+                      className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs"
+                    >
+                      {profileSaving ? "Saving..." : "Save Profile"}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-white/60 border border-white/80 space-y-2 text-xs text-slate-700 shadow-2xs font-medium">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Nickname:</span>
+                      <span className="font-bold text-slate-900">{profile?.nickname || "—"}</span>
+                    </div>
+                    {profile?.bio && (
+                      <div className="space-y-0.5 pt-1 border-t border-slate-100">
+                        <span className="text-slate-500 block text-[11px]">Bio:</span>
+                        <p className="text-slate-800 text-xs italic">{profile.bio}</p>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-1 border-t border-slate-100">
+                      <span className="text-slate-500">Database Role:</span>
+                      <span className="font-mono font-bold text-slate-900">{role || "user"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Identity:</span>
+                      <span className="text-emerald-600 font-bold">MongoDB Atlas (Canonical user_id)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Account Status:</span>
+                      <span className={`font-bold ${profile?.is_active !== false ? "text-emerald-600" : "text-rose-600"}`}>
+                        {profile?.is_active !== false ? "Active" : "Disabled"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditFullName(profile?.full_name || "");
+                        setEditNickname(profile?.nickname || "");
+                        setEditBio(profile?.bio || "");
+                        setIsEditingProfile(true);
+                      }}
+                      className="w-full mt-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Edit3 size={13} />
+                      <span>Edit Profile</span>
+                    </button>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Database Role:</span>
-                    <span className="font-mono font-bold text-slate-900">{role || "user"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Identity:</span>
-                    <span className="text-emerald-600 font-bold">auth.users.id (Supabase)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Account Status:</span>
-                    <span className={`font-bold ${profile?.is_active !== false ? "text-emerald-600" : "text-rose-600"}`}>
-                      {profile?.is_active !== false ? "Active" : "Disabled"}
-                    </span>
-                  </div>
-                </div>
+                )}
 
                 <button
                   onClick={handleLogout}

@@ -2,12 +2,12 @@ import json
 import os
 import time
 import logging
-from typing import Dict, Any, Optional, List, cast
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Try to import supabase
+# Try to import supabase for data storage
 try:
     from supabase import create_client, Client
     HAS_SUPABASE = True
@@ -24,41 +24,27 @@ except ImportError:
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
-# Legacy profile cache fallback
-DEFAULT_USERS = {
-    "loharavee@gmail.com": {
-        "name": "naveen panchal",
-        "nickname": "Avee",
-        "email": "loharavee@gmail.com",
-        "password": "Sarala@7880",
-        "role": "admin",
-        "is_naveen": True
-    }
-}
 
 class MemoryStorage:
     """
     Handles:
-    - User Profiles & Supabase Auth integration
-    - Long-term personal memory: saved permanently to Supabase (fallback to memory.json)
-    - Short-term chat memory: auto-deletes entries older than 24 hours
+    - User Authentication: Strictly delegated to MongoDB Atlas (authoritative source of truth).
+    - Long-term personal memory: saved permanently to Supabase (partitioned by user_id).
+    - Short-term chat memory: auto-deletes entries older than 24 hours.
+    All legacy local authentication (users.json, DEFAULT_USERS, plaintext credentials) has been decommissioned.
     """
-    def __init__(self, filepath="memory.json", users_filepath="users.json", max_history=20):
+    def __init__(self, filepath="memory.json", max_history=20):
         backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         if not os.path.isabs(filepath):
             filepath = os.path.join(backend_root, filepath)
-        if not os.path.isabs(users_filepath):
-            users_filepath = os.path.join(backend_root, users_filepath)
         self.filepath = filepath
-        self.users_filepath = users_filepath
         self.max_history = max_history
         self.data = {}          # Long-term personal memory cache
-        self.users = {}         # Registered users cache
         self.chat_history = []  # Short-term in-memory conversation log
         self.supabase = None
         
         supabase_url = os.environ.get("SUPABASE_URL", "").strip().strip('"').strip("'")
-        supabase_key = os.environ.get("SUPABASE_KEY", "").strip().strip('"').strip("'")
+        supabase_key = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY", "")).strip().strip('"').strip("'")
         
         self.use_supabase = (
             HAS_SUPABASE and 
@@ -70,230 +56,86 @@ class MemoryStorage:
         if self.use_supabase:
             try:
                 self.supabase = create_client(supabase_url, supabase_key)
-                logger.info("Supabase client initialized for MemoryStorage.")
+                logger.info("Supabase client initialized for MemoryStorage data operations.")
             except Exception as e:
-                logger.error(f"Failed to initialize Supabase: {e}")
+                logger.error(f"Failed to initialize Supabase client in MemoryStorage: {e}")
                 self.use_supabase = False
                 
         self.load()
-        self.load_users()
 
-    # ---- User Accounts & Authentication ----
-    def load_users(self):
-        self.users = dict(DEFAULT_USERS)
-        if os.path.exists(self.users_filepath):
-            try:
-                with open(self.users_filepath, "r", encoding="utf-8") as f:
-                    saved_users = json.load(f)
-                    self.users.update(saved_users)
-            except Exception as e:
-                logger.error(f"Failed to load users: {e}")
-
-    def save_users(self):
-        try:
-            with open(self.users_filepath, "w", encoding="utf-8") as f:
-                json.dump(self.users, f, indent=4)
-        except Exception as e:
-            logger.error(f"Failed to save users: {e}")
-
+    # ---- User Accounts & Authentication (MongoDB Atlas Authority) ----
     def authenticate_user(self, email: str, password: str) -> Dict[str, Any]:
-        """Authenticates user via MongoDB Atlas, Supabase Auth, or local fallback."""
+        """
+        Authenticates user strictly via MongoDB Atlas.
+        Zero fallback to Supabase Auth, local users.json, or hardcoded accounts.
+        """
         email_clean = email.strip().lower()
 
-        # 1. Primary Authentication: MongoDB Atlas (Authoritative Auth Source)
-        if HAS_MONGODB and mongodb_manager and mongodb_manager.is_connected:
+        if not HAS_MONGODB or not mongodb_manager or not mongodb_manager.is_connected:
+            return {
+                "success": False,
+                "message": "Database service is offline.",
+                "code": "DB_OFFLINE"
+            }
+
+        mongo_res = mongodb_manager.authenticate_user(email_clean, password)
+        if mongo_res.get("success") and mongo_res.get("user"):
+            u = mongo_res["user"]
+            user_id = str(u.get("user_id") or u.get("id"))
+            # Synchronize to Supabase Application Profile & Preferences
             try:
-                mongo_res = mongodb_manager.authenticate_user(email_clean, password)
-                if mongo_res.get("success") and mongo_res.get("user"):
-                    u = mongo_res["user"]
-                    user_id = str(u.get("id"))
-                    # Synchronize to Supabase Application Profile & Preferences
-                    from core.services.profile_service import profile_service
-                    from core.services.preferences_service import preferences_service
-                    profile_service.sync_login(
-                        user_id=user_id,
-                        email=u.get("email", email_clean),
-                        role=u.get("role", "user"),
-                        full_name=u.get("name", "User"),
-                        nickname=u.get("nickname", ""),
-                        is_active=u.get("is_active", True),
-                    )
-                    preferences_service.init_default_preferences(user_id)
-                    return mongo_res
+                from core.services.profile_service import profile_service
+                from core.services.preferences_service import preferences_service
+                profile_service.sync_login(
+                    user_id=user_id,
+                    email=u.get("email", email_clean),
+                    role=u.get("role", "user"),
+                    full_name=u.get("full_name") or u.get("name") or "User",
+                    nickname=u.get("nickname", ""),
+                    is_active=u.get("is_active", True),
+                )
+                preferences_service.init_default_preferences(user_id)
             except Exception as e:
-                logger.warning(f"MongoDB auth attempt error: {e}")
+                logger.debug(f"Profile synchronization note: {e}")
+            return mongo_res
 
-        # 2. Secondary: Supabase Auth
-        if self.use_supabase and self.supabase:
-            try:
-                res = self.supabase.auth.sign_in_with_password(cast(Any, {
-                    "email": email_clean,
-                    "password": password
-                }))
-                if res and hasattr(res, "user") and res.user:
-                    user_id = str(res.user.id)
-                    # Fetch profile from profiles table
-                    tbl = self.supabase.table("profiles")
-                    prof_res = tbl.select("*").eq("id", user_id).execute()
-                    p: Dict[str, Any] = {}
-                    if prof_res and isinstance(prof_res.data, list) and len(prof_res.data) > 0:
-                        first_row = prof_res.data[0]
-                        if isinstance(first_row, dict):
-                            p = cast(Dict[str, Any], first_row)
-
-                    user_meta: Dict[str, Any] = getattr(res.user, "user_metadata", {}) or {}
-                    if not isinstance(user_meta, dict):
-                        user_meta = {}
-
-                    role = p.get("role") or ("admin" if email_clean == "loharavee@gmail.com" else "user")
-                    full_name = p.get("full_name") or user_meta.get("full_name") or "User"
-                    nickname = p.get("nickname") or user_meta.get("nickname") or ""
-                    is_active = p.get("is_active", True)
-
-                    token = res.session.access_token if hasattr(res, "session") and res.session else None
-
-                    return {
-                        "success": True,
-                        "token": token,
-                        "user": {
-                            "id": user_id,
-                            "name": full_name,
-                            "nickname": nickname,
-                            "email": email_clean,
-                            "role": role,
-                            "is_active": is_active,
-                            "is_naveen": (email_clean == "loharavee@gmail.com" or role == "admin")
-                        }
-                    }
-            except Exception as e:
-                logger.warning(f"Supabase auth unavailable: {e}. Falling back to local credentials...")
-
-        # Local fallback authentication
-        user = self.users.get(email_clean)
-        if user:
-            stored_pwd = user.get("password")
-            if stored_pwd == password or (email_clean == "loharavee@gmail.com" and password in ["Sarala@7880", "Sarla@123"]):
-                role = user.get("role", "user")
-                if email_clean == "loharavee@gmail.com":
-                    role = "admin"
-                return {
-                    "success": True,
-                    "token": f"local_token_{email_clean}",
-                    "user": {
-                        "id": user.get("id") or "00000000-0000-0000-0000-000000000001",
-                        "name": user.get("name", "naveen panchal"),
-                        "nickname": user.get("nickname", "Avee"),
-                        "email": email_clean,
-                        "role": role,
-                        "is_active": True,
-                        "is_naveen": (email_clean == "loharavee@gmail.com" or role == "admin")
-                    }
-                }
-
-        return {"success": False, "message": "Invalid email or password"}
+        return mongo_res
 
     def register_user(self, name: str, nickname: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
-        """Registers user via MongoDB Atlas, Supabase Auth, or local storage."""
+        """
+        Registers user strictly via MongoDB Atlas (the sole authentication authority).
+        Zero fallback to Supabase Auth, local users.json, or mock accounts.
+        """
         email_clean = email.strip().lower()
 
-        # 1. Primary Registration: MongoDB Atlas
-        if HAS_MONGODB and mongodb_manager and mongodb_manager.is_connected:
-            try:
-                mongo_res = mongodb_manager.register_user(name, nickname, email_clean, password, role)
-                if mongo_res.get("success") and mongo_res.get("user"):
-                    u = mongo_res["user"]
-                    user_id = str(u.get("id"))
-                    self.users[email_clean] = u
-                    self.save_users()
-                    # Initialize Supabase Application Profile & Preferences
-                    from core.services.profile_service import profile_service
-                    from core.services.preferences_service import preferences_service
-                    profile_service.create_or_update_profile(
-                        user_id=user_id,
-                        email=email_clean,
-                        full_name=u.get("name", name),
-                        nickname=u.get("nickname", nickname),
-                        role=u.get("role", role),
-                        is_active=True,
-                    )
-                    preferences_service.init_default_preferences(user_id)
-                    return mongo_res
-                elif "already registered" in mongo_res.get("message", ""):
-                    return mongo_res
-            except Exception as e:
-                logger.warning(f"MongoDB registration error: {e}")
-
-        # 2. Secondary: Supabase Auth
-        if self.use_supabase and self.supabase:
-            try:
-                clean_name = name.strip().title()
-                clean_nick = nickname.strip().lower()
-                res = self.supabase.auth.sign_up(cast(Any, {
-                    "email": email_clean,
-                    "password": password,
-                    "options": {
-                        "data": {
-                            "full_name": clean_name,
-                            "nickname": clean_nick
-                        }
-                    }
-                }))
-                if res and hasattr(res, "user") and res.user:
-                    user_id = str(res.user.id)
-                    # Ensure profile exists with role = 'user'
-                    tbl = self.supabase.table("profiles")
-                    tbl.upsert({
-                        "id": user_id,
-                        "email": email_clean,
-                        "full_name": clean_name,
-                        "nickname": clean_nick,
-                        "role": "user",  # NEVER automatically grant admin
-                        "is_active": True
-                    }).execute()
-
-                    return {
-                        "success": True,
-                        "user": {
-                            "id": user_id,
-                            "name": clean_name,
-                            "nickname": clean_nick,
-                            "email": email_clean,
-                            "role": "user",
-                            "is_active": True,
-                            "is_naveen": False
-                        }
-                    }
-            except Exception as e:
-                logger.warning(f"Supabase user registration failed: {e}. Registering in local storage...")
-
-        # Local fallback registration
-        user_id = f"user_{int(time.time())}"
-        clean_name = name.strip().title()
-        clean_nick = nickname.strip().lower()
-        new_user = {
-            "id": user_id,
-            "name": clean_name,
-            "nickname": clean_nick,
-            "email": email_clean,
-            "password": password,
-            "role": role,
-            "is_active": True,
-            "is_naveen": (email_clean == "loharavee@gmail.com" or role == "admin")
-        }
-        self.users[email_clean] = new_user
-        self.save_users()
-        return {
-            "success": True,
-            "user": {
-                "id": user_id,
-                "name": clean_name,
-                "nickname": clean_nick,
-                "email": email_clean,
-                "role": role,
-                "is_active": True,
-                "is_naveen": (email_clean == "loharavee@gmail.com" or role == "admin")
+        if not HAS_MONGODB or not mongodb_manager or not mongodb_manager.is_connected:
+            return {
+                "success": False,
+                "message": "Database service is offline.",
+                "code": "DB_OFFLINE"
             }
-        }
+
+        mongo_res = mongodb_manager.register_user(name, nickname, email_clean, password, role)
+        if mongo_res.get("success") and mongo_res.get("user"):
+            u = mongo_res["user"]
+            user_id = str(u.get("user_id") or u.get("id"))
+            try:
+                from core.services.profile_service import profile_service
+                from core.services.preferences_service import preferences_service
+                profile_service.create_or_update_profile(
+                    user_id=user_id,
+                    email=email_clean,
+                    full_name=u.get("full_name") or u.get("name") or name,
+                    nickname=u.get("nickname") or nickname,
+                    role=u.get("role", "user"),
+                    is_active=True,
+                )
+                preferences_service.init_default_preferences(user_id)
+            except Exception as e:
+                logger.error(f"Error provisioning Supabase application profile for user {user_id}: {e}")
+            return mongo_res
+
+        return mongo_res
 
     # ---- Permanent Personal Memory (Supabase + User-Partitioned) ----
     def load(self):
@@ -303,18 +145,17 @@ class MemoryStorage:
             try:
                 with open(self.filepath, "r", encoding="utf-8") as f:
                     legacy = json.load(f)
-                    # Assign legacy data strictly to canonical admin partition
                     admin_id = "00000000-0000-0000-0000-000000000001"
                     self.user_data[admin_id] = legacy
             except Exception:
                 pass
 
     def save(self):
-        # We preserve existing file for audit/rollback without writing private user data
+        # Preserves existing file for audit/rollback without writing private user data
         pass
 
     def remember(self, key: str, value: Any, user_id: str = ""):
-        """Save a long-term personal fact permanently, scoped to user_id."""
+        """Save a long-term personal fact permanently, scoped strictly to user_id."""
         target_user = user_id or "guest"
         if not hasattr(self, "user_data"):
             self.user_data = {}

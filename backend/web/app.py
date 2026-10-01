@@ -157,6 +157,37 @@ def classify_emotion(text: str) -> tuple:
         return "friendly", "explainOneHand"
     return "neutral", "explainOneHand"
 
+# ── In-Memory Login Rate Limiter (Brute-Force Protection) ─────────────────────
+login_attempt_history: Dict[str, List[float]] = {}
+RATE_LIMIT_MAX_ATTEMPTS = 5
+RATE_LIMIT_WINDOW_SECONDS = 300  # 5 minutes
+RATE_LIMIT_LOCKOUT_SECONDS = 60  # 60 seconds lockout
+
+def check_login_rate_limit(key: str):
+    now = time.time()
+    history = login_attempt_history.get(key, [])
+    # Filter attempts within moving window
+    history = [t for t in history if now - t < RATE_LIMIT_WINDOW_SECONDS]
+    login_attempt_history[key] = history
+    if len(history) >= RATE_LIMIT_MAX_ATTEMPTS:
+        time_since_last = now - history[-1]
+        if time_since_last < RATE_LIMIT_LOCKOUT_SECONDS:
+            remaining = int(RATE_LIMIT_LOCKOUT_SECONDS - time_since_last)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed login attempts. Please wait {remaining} seconds before trying again."
+            )
+
+def record_failed_login(key: str):
+    now = time.time()
+    history = login_attempt_history.get(key, [])
+    history.append(now)
+    login_attempt_history[key] = history
+
+def reset_login_rate_limit(key: str):
+    if key in login_attempt_history:
+        del login_attempt_history[key]
+
 # ── General Routes ───────────────────────────────────────────────────────────
 @app.get("/")
 async def index():
@@ -166,33 +197,198 @@ async def index():
 
 @app.get("/health")
 async def health():
+    """
+    Granular system health check. Distinguishes:
+    - MongoDB Atlas status (authentication authority)
+    - Supabase PostgreSQL status (application data)
+    - Global application status
+    """
+    mongo_ok = mongodb_manager.is_connected
+    supa_ok = supabase_manager.is_connected
+    is_healthy = mongo_ok and supa_ok
+    status_str = "healthy" if is_healthy else ("degraded" if (mongo_ok or supa_ok) else "unhealthy")
+
     return {
-        "status": "healthy",
+        "status": status_str,
         "agent": "Sarla AI",
-        "mongodb_connected": mongodb_manager.is_connected,
-        "supabase_connected": supabase_manager.is_connected
+        "mongodb_connected": mongo_ok,
+        "supabase_connected": supa_ok,
+        "database": {
+            "mongodb": "connected" if mongo_ok else "disconnected",
+            "supabase": "connected" if supa_ok else "disconnected"
+        },
+        "authentication": {
+            "provider": "mongodb",
+            "authority": "MongoDB Atlas",
+            "status": "operational" if mongo_ok else "unavailable"
+        }
     }
 
-# ── Authentication & Profiles ────────────────────────────────────────────────
+# ── Authentication & Profiles (MongoDB Atlas Authority) ──────────────────────
 @app.post("/api/login")
 async def login(req: LoginRequest):
-    result = brain.memory.authenticate_user(req.email, req.password)
-    return JSONResponse(result)
+    """
+    Authoritative login endpoint. Authenticates strictly against MongoDB Atlas.
+    Zero fallback to local storage or Supabase Auth.
+    Enforces rate limiting, constant-time PBKDF2 hash verification, and account active checks.
+    """
+    email_clean = (req.email or "").strip().lower()
+    if not email_clean or not req.password:
+        raise HTTPException(status_code=400, detail="Email and password are required.")
 
-@app.post("/api/signup")
+    # Brute-force throttling per email
+    check_login_rate_limit(email_clean)
+
+    if not mongodb_manager.is_connected:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is currently unavailable. Please try again shortly."
+        )
+
+    result = mongodb_manager.authenticate_user(email_clean, req.password)
+    if not result.get("success"):
+        record_failed_login(email_clean)
+        code = result.get("code")
+        if code == "ACCOUNT_DEACTIVATED":
+            raise HTTPException(status_code=403, detail="This account has been deactivated.")
+        if code == "DB_OFFLINE":
+            raise HTTPException(status_code=503, detail="Authentication service is currently unavailable.")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+    # Reset failed attempts upon successful login
+    reset_login_rate_limit(email_clean)
+
+    user_info = result["user"]
+    user_id = str(user_info.get("user_id") or user_info.get("id"))
+
+    # Synchronize Supabase profile & default preferences
+    try:
+        profile_service.sync_login(
+            user_id=user_id,
+            email=user_info["email"],
+            role=user_info.get("role", "user"),
+            full_name=user_info.get("full_name") or user_info.get("name") or "User",
+            nickname=user_info.get("nickname", ""),
+            is_active=True,
+        )
+        preferences_service.init_default_preferences(user_id)
+    except Exception as e:
+        logger.debug(f"Profile synchronization note: {e}")
+
+    safe_user = {
+        "id": user_id,
+        "user_id": user_id,
+        "email": user_info["email"],
+        "name": user_info.get("name") or user_info.get("full_name") or "User",
+        "full_name": user_info.get("full_name") or user_info.get("name") or "User",
+        "nickname": user_info.get("nickname", ""),
+        "role": user_info.get("role", "user"),
+        "is_active": True,
+    }
+
+    return JSONResponse({
+        "success": True,
+        "token": result["token"],
+        "user": safe_user,
+        "data": {
+            "token": result["token"],
+            "user": safe_user
+        }
+    })
+
+@app.post("/api/signup", status_code=201)
 async def signup(req: SignupRequest):
-    result = brain.memory.register_user(req.name, req.nickname, req.email, req.password, req.role)
-    return JSONResponse(result)
+    """
+    Registers a new user in MongoDB Atlas (sole auth authority) with canonical UUID user_id.
+    Prevents frontend role escalation (forces role='user' unless root administrator).
+    Provisions corresponding Supabase application profile and default preferences.
+    """
+    email_clean = (req.email or "").strip().lower()
+    if not email_clean or "@" not in email_clean or "." not in email_clean:
+        raise HTTPException(status_code=400, detail="A valid email address is required.")
+    if not req.password or len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+
+    if not mongodb_manager.is_connected:
+        raise HTTPException(
+            status_code=503,
+            detail="Registration service is currently unavailable. Please try again shortly."
+        )
+
+    assigned_role = "admin" if email_clean == "loharavee@gmail.com" else "user"
+
+    result = mongodb_manager.register_user(
+        name=req.name,
+        nickname=req.nickname,
+        email=email_clean,
+        password=req.password,
+        role=assigned_role,
+    )
+    if not result.get("success"):
+        code = result.get("code")
+        if code == "EMAIL_EXISTS":
+            raise HTTPException(status_code=409, detail=result.get("message", "This email is already registered."))
+        if code == "DB_OFFLINE":
+            raise HTTPException(status_code=503, detail="Registration service is currently unavailable.")
+        raise HTTPException(status_code=400, detail=result.get("message", "Registration failed."))
+
+    user_info = result["user"]
+    user_id = str(user_info.get("user_id") or user_info.get("id"))
+
+    # Provision Supabase application profile and preferences
+    try:
+        profile_service.create_or_update_profile(
+            user_id=user_id,
+            email=email_clean,
+            full_name=user_info.get("full_name") or user_info.get("name") or req.name,
+            nickname=user_info.get("nickname") or req.nickname,
+            role=assigned_role,
+            is_active=True,
+        )
+        preferences_service.init_default_preferences(user_id)
+    except Exception as e:
+        logger.error(f"Error provisioning Supabase profile for {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Account created in authentication database, but profile provisioning encountered an error."
+        )
+
+    safe_user = {
+        "id": user_id,
+        "user_id": user_id,
+        "email": user_info["email"],
+        "name": user_info.get("name") or user_info.get("full_name") or req.name,
+        "full_name": user_info.get("full_name") or user_info.get("name") or req.name,
+        "nickname": user_info.get("nickname", ""),
+        "role": assigned_role,
+        "is_active": True,
+    }
+
+    return JSONResponse({
+        "success": True,
+        "token": result["token"],
+        "user": safe_user,
+        "data": {
+            "token": result["token"],
+            "user": safe_user
+        }
+    }, status_code=201)
+
+@app.post("/api/logout")
+async def logout(current_user: Optional[CurrentUser] = Depends(get_current_user_optional)):
+    """Stateless session logout acknowledgment. Client removes Bearer token."""
+    return {"success": True, "message": "Successfully logged out."}
 
 @app.get("/api/auth/me")
 async def get_current_user_profile(current_user: CurrentUser = Depends(get_current_user)):
-    """Verifies and returns authenticated user's role and profile from MongoDB + Supabase."""
+    """Verifies and returns authoritative user identity from MongoDB Atlas + Supabase profile."""
     prof = profile_service.get_profile(current_user.user_id) or {}
     user_payload = {
         "id": current_user.id,
         "user_id": current_user.user_id,
-        "name": prof.get("full_name") or current_user.full_name,
-        "nickname": prof.get("nickname") or current_user.nickname,
+        "name": current_user.full_name,
+        "full_name": current_user.full_name,
+        "nickname": current_user.nickname,
         "email": current_user.email,
         "role": current_user.role,
         "is_active": current_user.is_active,
@@ -209,8 +405,17 @@ async def get_current_user_profile(current_user: CurrentUser = Depends(get_curre
 # ── Application Profile Endpoints (Supabase) ──────────────────────────────────
 @app.get("/api/profile")
 async def get_user_profile(current_user: CurrentUser = Depends(get_current_user)):
-    """Fetches application profile for the authenticated user from Supabase."""
-    prof = profile_service.get_profile(current_user.user_id) or {}
+    """Fetches application profile for the authenticated user from Supabase. Auto-provisions defaults if missing."""
+    prof = profile_service.get_profile(current_user.user_id)
+    if not prof:
+        prof = profile_service.create_or_update_profile(
+            user_id=current_user.user_id,
+            email=current_user.email,
+            full_name=current_user.full_name,
+            nickname=current_user.nickname,
+            role=current_user.role,
+            is_active=current_user.is_active,
+        )
     profile_data = {
         "user_id": current_user.user_id,
         "id": current_user.id,
@@ -240,7 +445,21 @@ async def update_user_profile(
     """Updates profile. Strips role, is_active, and user_id to prevent escalation."""
     fields = updates.model_dump(exclude_unset=True)
     updated = profile_service.update_user_profile(current_user.user_id, fields)
-    return {"success": True, "data": updated, "profile": updated}
+    profile_data = {
+        "user_id": current_user.user_id,
+        "id": current_user.id,
+        "email": current_user.email,
+        "full_name": updated.get("full_name") or current_user.full_name,
+        "nickname": updated.get("nickname") or current_user.nickname,
+        "avatar_url": updated.get("avatar_url", ""),
+        "bio": updated.get("bio", ""),
+        "role": current_user.role,
+        "is_active": current_user.is_active,
+        "created_at": updated.get("created_at"),
+        "updated_at": updated.get("updated_at"),
+        "last_login_at": updated.get("last_login_at"),
+    }
+    return {"success": True, "data": profile_data, "profile": profile_data}
 
 # ── User Preferences Endpoints (Supabase) ────────────────────────────────────
 @app.get("/api/preferences")
@@ -294,7 +513,11 @@ async def create_conversation(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Creates a new conversation owned by current_user.user_id."""
-    conv = conversation_service.create_conversation(current_user.user_id, title=req.title, mode=req.mode)
+    conv = conversation_service.create_conversation(
+        current_user.user_id,
+        title=str(req.title or "New Conversation"),
+        mode=str(req.mode or "normal"),
+    )
     return {"success": True, "data": conv, "conversation": conv}
 
 @app.get("/api/conversations/{conversation_id}")
@@ -904,6 +1127,47 @@ async def confirm_tool_execution(
     )
     status_code = 200 if result.success else 400
     return JSONResponse(result.to_dict(), status_code=status_code)
+
+
+@app.get("/api/tool-executions")
+@app.get("/api/ai/tools/executions")
+async def list_tool_executions_endpoint(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    conversation_id: Optional[str] = Query(None),
+    tool_name: Optional[str] = Query(None),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Lists tool execution audit records strictly scoped to authenticated current_user.user_id.
+    Query parameters cannot be used to retrieve another user's executions.
+    """
+    if supabase_manager.is_connected and supabase_manager.client:
+        try:
+            tbl = supabase_manager.table("tool_executions")
+            if tbl is not None:
+                query = tbl.select("*", count="exact").eq("user_id", current_user.user_id)
+                if conversation_id:
+                    query = query.eq("conversation_id", conversation_id)
+                if tool_name:
+                    query = query.eq("tool_name", tool_name)
+                res = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+                if res and isinstance(res.data, list):
+                    total = res.count if hasattr(res, "count") and res.count is not None else len(res.data)
+                    return JSONResponse({
+                        "success": True,
+                        "data": res.data,
+                        "tool_executions": res.data,
+                        "pagination": {"limit": limit, "offset": offset, "total": total}
+                    })
+        except Exception as e:
+            logger.debug(f"Error listing tool executions: {e}")
+    return JSONResponse({
+        "success": True,
+        "data": [],
+        "tool_executions": [],
+        "pagination": {"limit": limit, "offset": offset, "total": 0}
+    })
 
 
 # ── AI Agent Planning & Execution Engine Endpoints (Task 1.9) ────────────────

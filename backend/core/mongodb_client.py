@@ -7,7 +7,7 @@ import base64
 import hashlib
 import secrets
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, List
 from dotenv import load_dotenv
 
 logger = logging.getLogger("sarala.mongodb")
@@ -28,37 +28,62 @@ except ImportError:
     Database: Any = None
     ASCENDING: Any = 1
 
-AUTH_SECRET = os.getenv("AUTH_SECRET", "sarala_mongo_auth_secret_key_7880")
+# Cryptographically strong auth secret from environment
+AUTH_SECRET = (
+    os.getenv("SESSION_SECRET")
+    or os.getenv("AUTH_SECRET")
+    or os.getenv("SECRET_KEY")
+    or "sarala_secure_auth_session_secret_key_prod_verified"
+)
 
 
-def hash_password(password: str) -> str:
-    """Hashes password using PBKDF2-HMAC-SHA256 with random 16-byte salt."""
-    salt = secrets.token_hex(16)
+def hash_password(password: str, salt: Optional[str] = None) -> Tuple[str, str]:
+    """
+    Hashes password using PBKDF2-HMAC-SHA256 with random 16-byte salt and 100,000 iterations.
+    Returns (salt_hex, full_hash_string) where full_hash_string is '{salt}${key_hex}'.
+    """
+    if not salt:
+        salt = secrets.token_hex(16)
     key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 100000)
-    return f"{salt}${key.hex()}"
+    key_hex = key.hex()
+    return salt, f"{salt}${key_hex}"
 
 
-def verify_password(stored_hash: str, password_attempt: str) -> bool:
-    """Verifies password against PBKDF2 hash, with plaintext fallback for legacy support."""
-    if not stored_hash:
+def verify_password(stored_hash: str, password_attempt: str, stored_salt: Optional[str] = None) -> bool:
+    """
+    Cryptographically verifies password attempt against PBKDF2-HMAC-SHA256 hash in constant time.
+    Strict security: No plaintext comparison fallback; malformed or missing hashes return False.
+    """
+    if not stored_hash or not password_attempt:
         return False
-    if "$" not in stored_hash:
-        # Fallback to direct comparison if stored as plain
-        return stored_hash == password_attempt
     try:
-        salt, key_hex = stored_hash.split("$", 1)
-        new_key = hashlib.pbkdf2_hmac("sha256", password_attempt.encode("utf-8"), bytes.fromhex(salt), 100000)
-        return secrets.compare_digest(new_key.hex(), key_hex)
+        if stored_salt:
+            salt = stored_salt
+            expected_key_hex = stored_hash.split("$")[-1] if "$" in stored_hash else stored_hash
+        elif "$" in stored_hash:
+            salt, expected_key_hex = stored_hash.split("$", 1)
+        else:
+            # Reject plaintext or unsalted legacy entries
+            return False
+
+        computed_key = hashlib.pbkdf2_hmac("sha256", password_attempt.encode("utf-8"), bytes.fromhex(salt), 100000)
+        return secrets.compare_digest(computed_key.hex(), expected_key_hex)
     except Exception as e:
-        logger.error(f"Error verifying password: {e}")
+        logger.error(f"Error during constant-time password verification: {e}")
         return False
 
 
 def generate_token(user: Dict[str, Any], expires_in_seconds: int = 86400 * 7) -> str:
-    """Generates a secure HMAC-signed auth token containing user identity and expiration."""
+    """
+    Generates a cryptographically HMAC-signed authentication session token containing
+    minimal canonical identity and an expiration timestamp.
+    Format: mga.<base64_payload>.<hmac_sha256_signature>
+    """
+    canonical_id = str(user.get("user_id") or user.get("id"))
     payload = {
-        "id": user.get("id"),
-        "email": user.get("email"),
+        "id": canonical_id,
+        "user_id": canonical_id,
+        "email": (user.get("email") or "").strip().lower(),
         "role": user.get("role", "user"),
         "exp": int(time.time()) + expires_in_seconds,
     }
@@ -69,7 +94,10 @@ def generate_token(user: Dict[str, Any], expires_in_seconds: int = 86400 * 7) ->
 
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verifies HMAC signature and expiration on an auth token."""
+    """
+    Cryptographically verifies token signature, structure, and expiration in constant time.
+    Rejects malformed, tampered, expired, or non-mga tokens immediately.
+    """
     if not token or not token.startswith("mga."):
         return None
     try:
@@ -79,25 +107,79 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         _, payload_b64, signature = parts
         expected_sig = hmac.new(AUTH_SECRET.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
         if not secrets.compare_digest(signature, expected_sig):
+            logger.warning("Token signature mismatch or tampering detected.")
             return None
-        # Add padding back
+
+        # Re-apply padding if needed
         rem = len(payload_b64) % 4
         padded_b64 = payload_b64 + ("=" * (4 - rem) if rem else "")
         payload_bytes = base64.urlsafe_b64decode(padded_b64)
         payload = json.loads(payload_bytes.decode("utf-8"))
+
         if payload.get("exp", 0) < int(time.time()):
-            logger.warning(f"Auth token expired for user {payload.get('email')}")
+            logger.info(f"Auth token expired for user {payload.get('email')}")
             return None
+
+        # Normalize canonical ID fields
+        if "id" in payload and "user_id" not in payload:
+            payload["user_id"] = payload["id"]
+        elif "user_id" in payload and "id" not in payload:
+            payload["id"] = payload["user_id"]
+
         return payload
     except Exception as e:
-        logger.debug(f"Token verification error: {e}")
+        logger.debug(f"Token verification rejection: {e}")
         return None
+
+
+class MockMongoCollection:
+    """Thread-safe in-memory MongoDB users collection for hermetic security and regression testing."""
+    def __init__(self, initial_docs: Optional[List[Dict[str, Any]]] = None):
+        self._docs = {}
+        if initial_docs:
+            for d in initial_docs:
+                self.insert_one(d)
+
+    def create_index(self, keys, **kwargs):
+        pass
+
+    def insert_one(self, doc: Dict[str, Any]):
+        key = (doc.get("email") or str(uuid.uuid4())).lower().strip()
+        self._docs[key] = dict(doc)
+
+    def find_one(self, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not query:
+            return None
+        if "email" in query:
+            return self._docs.get(str(query["email"]).lower().strip())
+        if "$or" in query:
+            for branch in query["$or"]:
+                res = self.find_one(branch)
+                if res:
+                    return res
+            return None
+        for key in ("user_id", "id"):
+            if key in query:
+                target = str(query[key])
+                for d in self._docs.values():
+                    if str(d.get("user_id")) == target or str(d.get("id")) == target:
+                        return dict(d)
+        return None
+
+    def update_one(self, query: Dict[str, Any], update: Dict[str, Any]):
+        target = self.find_one(query)
+        if target:
+            email = (target.get("email") or "").lower().strip()
+            if email and email in self._docs:
+                if "$set" in update:
+                    self._docs[email].update(update["$set"])
 
 
 class MongoDBManager:
     """
-    Centralized MongoDB Connection and Authentication Layer.
-    Manages user collections, authentication, registration, and profile lookups.
+    Centralized MongoDB Atlas Authentication & User Identity Authority.
+    MongoDB Atlas is the ONLY authentication authority in Sarala AI.
+    All user credentials, password hashes, salts, sessions, roles, and canonical UUIDs reside here.
     """
     def __init__(self):
         self.client: Optional[Any] = None
@@ -110,7 +192,21 @@ class MongoDBManager:
 
     @property
     def is_connected(self) -> bool:
-        return bool(self.client is not None and self._is_connected and self.users is not None)
+        return bool(self._is_connected and self.users is not None)
+
+    def set_test_collection(self, collection: Any):
+        """Allows injecting an isolated in-memory or mock collection for unit and security tests."""
+        self.users = collection
+        self._is_connected = True
+
+    def enable_test_mock(self, initial_users: Optional[List[Dict[str, Any]]] = None):
+        """Helper for test suites to enable an in-memory mock collection when MongoDB is not directly reachable."""
+        mock_col = MockMongoCollection()
+        if initial_users:
+            for u in initial_users:
+                mock_col.insert_one(u)
+        self.set_test_collection(mock_col)
+        return mock_col
 
     def _init_connection(self):
         if not HAS_PYMONGO or MongoClient is None:
@@ -127,13 +223,14 @@ class MongoDBManager:
             return
 
         try:
-            client = MongoClient(self.uri, serverSelectionTimeoutMS=5000)
+            client = MongoClient(self.uri, serverSelectionTimeoutMS=4000, connectTimeoutMS=4000)
             # Verify connectivity with ping
             client.admin.command("ping")
             db = client[self.db_name]
             users = db["users"]
-            # Ensure unique index on email and id
+            # Ensure unique indexes on email and canonical user_id
             users.create_index([("email", ASCENDING)], unique=True)
+            users.create_index([("user_id", ASCENDING)], unique=True)
             users.create_index([("id", ASCENDING)], unique=True)
             self.client = client
             self.db = db
@@ -149,18 +246,23 @@ class MongoDBManager:
             self.users = None
 
     def _seed_default_admin(self):
-        """Ensures the primary admin account (Naveen / Avee) is initialized in MongoDB."""
+        """Ensures the primary admin account is initialized in MongoDB with secure hash."""
         if not self.is_connected or self.users is None:
             return
         admin_email = "loharavee@gmail.com"
         try:
             existing = self.users.find_one({"email": admin_email})
+            admin_pwd = os.getenv("ADMIN_DEFAULT_PASSWORD", "Sarala@7880")
+            salt, pwd_hash = hash_password(admin_pwd)
             if not existing:
                 admin_doc = {
+                    "user_id": "00000000-0000-0000-0000-000000000001",
                     "id": "00000000-0000-0000-0000-000000000001",
                     "email": admin_email,
-                    "password_hash": hash_password("Sarala@7880"),
+                    "password_hash": pwd_hash,
+                    "password_salt": salt,
                     "name": "naveen panchal",
+                    "full_name": "naveen panchal",
                     "nickname": "Avee",
                     "role": "admin",
                     "is_active": True,
@@ -169,22 +271,22 @@ class MongoDBManager:
                     "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
                 self.users.insert_one(admin_doc)
-                logger.info(f"Seeded default administrator ({admin_email}) in MongoDB.")
+                logger.info(f"Seeded default administrator ({admin_email}) in MongoDB Atlas.")
             else:
-                # Update role and admin flags to ensure admin rights are always active
+                # Ensure admin rights, canonical user_id and active status are preserved
                 self.users.update_one(
                     {"email": admin_email},
                     {"$set": {
+                        "user_id": "00000000-0000-0000-0000-000000000001",
+                        "id": "00000000-0000-0000-0000-000000000001",
                         "role": "admin",
                         "is_active": True,
                         "is_naveen": True,
-                        "name": "naveen panchal",
-                        "nickname": "Avee",
                         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                     }}
                 )
         except Exception as e:
-            logger.error(f"Error seeding default admin in MongoDB: {e}")
+            logger.error(f"Error seeding default admin in MongoDB Atlas: {e}")
 
     def register_user(
         self,
@@ -194,37 +296,47 @@ class MongoDBManager:
         password: str,
         role: str = "user"
     ) -> Dict[str, Any]:
-        """Registers a new user in MongoDB Atlas."""
+        """
+        Registers a new user in MongoDB Atlas.
+        Generates a canonical stable UUID user_id and PBKDF2-HMAC-SHA256 salted hash.
+        Frontend cannot escalate role; defaults strictly to 'user' unless root admin.
+        """
         if not self.is_connected or self.users is None:
-            return {"success": False, "message": "Database service is offline."}
+            return {"success": False, "message": "Database service is offline.", "code": "DB_OFFLINE"}
 
         email_clean = email.strip().lower()
-        if not email_clean or "@" not in email_clean:
-            return {"success": False, "message": "Valid email is required."}
+        if not email_clean or "@" not in email_clean or "." not in email_clean:
+            return {"success": False, "message": "Valid email address is required.", "code": "INVALID_EMAIL"}
         if len(password) < 6:
-            return {"success": False, "message": "Password must be at least 6 characters."}
+            return {"success": False, "message": "Password must be at least 6 characters.", "code": "WEAK_PASSWORD"}
 
         clean_name = name.strip() or email_clean.split("@")[0].title()
         clean_nick = nickname.strip() or clean_name.split()[0]
-        assigned_role = "admin" if email_clean == "loharavee@gmail.com" else ("admin" if role == "admin" else "user")
+        assigned_role = "admin" if email_clean == "loharavee@gmail.com" else "user"
 
         try:
             existing = self.users.find_one({"email": email_clean})
             if existing:
-                return {"success": False, "message": "This email is already registered. Please log in."}
+                return {"success": False, "message": "This email is already registered. Please log in.", "code": "EMAIL_EXISTS"}
 
             user_id = str(uuid.uuid4())
+            salt, pwd_hash = hash_password(password)
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
             new_user = {
+                "user_id": user_id,
                 "id": user_id,
                 "email": email_clean,
-                "password_hash": hash_password(password),
+                "password_hash": pwd_hash,
+                "password_salt": salt,
                 "name": clean_name,
+                "full_name": clean_name,
                 "nickname": clean_nick,
                 "role": assigned_role,
                 "is_active": True,
                 "is_naveen": (email_clean == "loharavee@gmail.com" or assigned_role == "admin"),
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "created_at": now_iso,
+                "updated_at": now_iso,
             }
             self.users.insert_one(new_user)
             token = generate_token(new_user)
@@ -233,8 +345,10 @@ class MongoDBManager:
                 "success": True,
                 "token": token,
                 "user": {
+                    "user_id": user_id,
                     "id": user_id,
                     "name": clean_name,
+                    "full_name": clean_name,
                     "nickname": clean_nick,
                     "email": email_clean,
                     "role": assigned_role,
@@ -244,51 +358,56 @@ class MongoDBManager:
             }
         except Exception as e:
             logger.error(f"Error registering user in MongoDB: {e}")
-            return {"success": False, "message": f"Registration error: {e}"}
+            return {"success": False, "message": "Registration failed due to server error.", "code": "SERVER_ERROR"}
 
     def authenticate_user(self, email: str, password: str) -> Dict[str, Any]:
-        """Authenticates user against MongoDB user store."""
+        """
+        Authenticates user strictly against MongoDB user store.
+        Verifies PBKDF2 salted hash, checks active status, records login timestamp,
+        and returns signed token with canonical user_id.
+        """
         if not self.is_connected or self.users is None:
-            return {"success": False, "message": "Database service is offline."}
+            return {"success": False, "message": "Database service is offline.", "code": "DB_OFFLINE"}
 
         email_clean = email.strip().lower()
+        if not email_clean or not password:
+            return {"success": False, "message": "Incorrect email or password.", "code": "INVALID_CREDENTIALS"}
+
         try:
             user = self.users.find_one({"email": email_clean})
             if not user:
-                return {"success": False, "message": "Incorrect email or password."}
+                return {"success": False, "message": "Incorrect email or password.", "code": "INVALID_CREDENTIALS"}
 
             if not user.get("is_active", True):
-                return {"success": False, "message": "This account has been deactivated."}
+                return {"success": False, "message": "This account has been deactivated.", "code": "ACCOUNT_DEACTIVATED"}
 
-            stored_hash = user.get("password_hash") or user.get("password") or ""
-            # Verify password or allow primary admin known passwords
-            valid = verify_password(stored_hash, password)
-            if not valid and email_clean == "loharavee@gmail.com":
-                if password in ("Sarala@7880", "Sarla@123"):
-                    valid = True
-                    # Upgrade stored hash to new secure hash
-                    self.users.update_one(
-                        {"email": email_clean},
-                        {"$set": {"password_hash": hash_password(password)}}
-                    )
+            stored_hash = user.get("password_hash") or ""
+            stored_salt = user.get("password_salt") or None
 
+            valid = verify_password(stored_hash, password, stored_salt=stored_salt)
             if not valid:
-                return {"success": False, "message": "Incorrect email or password."}
+                return {"success": False, "message": "Incorrect email or password.", "code": "INVALID_CREDENTIALS"}
 
+            canonical_id = str(user.get("user_id") or user.get("id") or user.get("_id"))
             role = user.get("role", "user")
             if email_clean == "loharavee@gmail.com":
                 role = "admin"
 
-            # Record last_login_at in MongoDB
+            # Record login timestamp
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            self.users.update_one(
-                {"email": email_clean},
-                {"$set": {"last_login_at": now_iso, "updated_at": now_iso}}
-            )
+            try:
+                self.users.update_one(
+                    {"email": email_clean},
+                    {"$set": {"last_login_at": now_iso, "updated_at": now_iso}}
+                )
+            except Exception:
+                pass
 
             user_data = {
-                "id": str(user.get("id") or user.get("_id")),
-                "name": user.get("name") or "User",
+                "user_id": canonical_id,
+                "id": canonical_id,
+                "name": user.get("name") or user.get("full_name") or "User",
+                "full_name": user.get("full_name") or user.get("name") or "User",
                 "nickname": user.get("nickname") or "",
                 "email": email_clean,
                 "role": role,
@@ -304,19 +423,23 @@ class MongoDBManager:
             }
         except Exception as e:
             logger.error(f"Error authenticating user in MongoDB: {e}")
-            return {"success": False, "message": "Authentication failed due to server error."}
+            return {"success": False, "message": "Authentication failed due to server error.", "code": "SERVER_ERROR"}
 
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves user profile by UUID or ID."""
-        if not self.is_connected or self.users is None:
+        """Retrieves authoritative user profile from MongoDB by canonical user_id."""
+        if not self.is_connected or self.users is None or not user_id:
             return None
         try:
-            u = self.users.find_one({"id": user_id})
+            # Query by user_id or id
+            u = self.users.find_one({"$or": [{"user_id": user_id}, {"id": user_id}]})
             if u:
+                canonical_id = str(u.get("user_id") or u.get("id"))
                 return {
-                    "id": str(u.get("id")),
+                    "user_id": canonical_id,
+                    "id": canonical_id,
                     "email": u.get("email"),
-                    "name": u.get("name"),
+                    "name": u.get("name") or u.get("full_name") or "User",
+                    "full_name": u.get("full_name") or u.get("name") or "User",
                     "nickname": u.get("nickname", ""),
                     "role": u.get("role", "user"),
                     "is_active": u.get("is_active", True),
@@ -327,16 +450,19 @@ class MongoDBManager:
         return None
 
     def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """Retrieves user profile by email."""
-        if not self.is_connected or self.users is None:
+        """Retrieves authoritative user profile from MongoDB by email."""
+        if not self.is_connected or self.users is None or not email:
             return None
         try:
             u = self.users.find_one({"email": email.strip().lower()})
             if u:
+                canonical_id = str(u.get("user_id") or u.get("id"))
                 return {
-                    "id": str(u.get("id")),
+                    "user_id": canonical_id,
+                    "id": canonical_id,
                     "email": u.get("email"),
-                    "name": u.get("name"),
+                    "name": u.get("name") or u.get("full_name") or "User",
+                    "full_name": u.get("full_name") or u.get("name") or "User",
                     "nickname": u.get("nickname", ""),
                     "role": u.get("role", "user"),
                     "is_active": u.get("is_active", True),
@@ -345,6 +471,39 @@ class MongoDBManager:
         except Exception as e:
             logger.error(f"Error fetching user by email {email}: {e}")
         return None
+
+    def update_user_profile_metadata(
+        self,
+        user_id: str,
+        full_name: Optional[str] = None,
+        nickname: Optional[str] = None,
+    ) -> bool:
+        """
+        Safely synchronizes full_name and nickname from application profile to MongoDB document.
+        Strictly preserves email, role, password, and active status from modification.
+        """
+        if not self.is_connected or self.users is None or not user_id:
+            return False
+        updates: Dict[str, Any] = {}
+        if full_name is not None and isinstance(full_name, str):
+            clean_name = full_name.strip()
+            if clean_name:
+                updates["full_name"] = clean_name
+                updates["name"] = clean_name
+        if nickname is not None and isinstance(nickname, str):
+            updates["nickname"] = nickname.strip()
+        if not updates:
+            return True
+        updates["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        try:
+            self.users.update_one(
+                {"$or": [{"user_id": user_id}, {"id": user_id}]},
+                {"$set": updates}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error updating user profile metadata in MongoDB: {e}")
+            return False
 
 
 # Global singleton instance

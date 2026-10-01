@@ -22,6 +22,7 @@ from ai.tools.implementations import (
     delete_user_memory,
     get_conversation,
     search_conversations,
+    create_conversation,
     get_system_stats,
 )
 
@@ -355,7 +356,37 @@ class ToolRegistry:
             )
         )
 
-        # 11. Admin-Only System Stats
+        # 11. Create Conversation
+        self.register(
+            ToolDefinition(
+                name="create_conversation",
+                description="Creates a new conversation strictly for the authenticated user.",
+                category=ToolCategory.CONVERSATION,
+                action_type=ToolActionType.WRITE,
+                requires_authentication=True,
+                requires_confirmation=False,
+                allowed_roles=["user", "admin"],
+                risk_level=RiskLevel.LOW,
+                timeout=5.0,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Title for the conversation (default 'New Conversation')"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["normal", "love", "expert"],
+                            "description": "Conversation personality mode (normal, love, expert)"
+                        }
+                    },
+                },
+                handler=create_conversation,
+            )
+        )
+
+        # 12. Admin-Only System Stats
         self.register(
             ToolDefinition(
                 name="get_system_stats",

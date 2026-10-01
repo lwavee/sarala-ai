@@ -57,6 +57,7 @@ class ConversationService:
                         total = res.count if hasattr(res, "count") and res.count is not None else len(res.data)
                         user_store = self._user_conversations.setdefault(user_id, {})
                         for row in res.data:
+                            row["message_count"] = int(row.get("message_count") or 0)
                             user_store[str(row["id"])] = row
                         return res.data, total
             except Exception as e:
@@ -68,6 +69,9 @@ class ConversationService:
             c for c in user_store.values()
             if (not status and c.get("status") != "deleted") or (status and c.get("status") == status)
         ]
+        for c in filtered:
+            c["message_count"] = int(c.get("message_count") or 0)
+
         if search and search.strip():
             s_clean = search.strip().lower()
             filtered = [c for c in filtered if s_clean in c.get("title", "").lower()]
@@ -99,6 +103,7 @@ class ConversationService:
                     )
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         row = res.data[0]
+                        row["message_count"] = int(row.get("message_count") or 0)
                         self._user_conversations.setdefault(user_id, {})[conversation_id] = row
                         return row
             except Exception as e:
@@ -107,23 +112,31 @@ class ConversationService:
         conv = self._user_conversations.get(user_id, {}).get(conversation_id)
         if conv and conv.get("status") == "deleted":
             return None
+        if conv:
+            conv["message_count"] = int(conv.get("message_count") or 0)
         return conv
 
     def create_conversation(
         self,
         user_id: str,
-        title: str = "New Conversation",
-        mode: str = "normal",
+        title: Optional[str] = "New Conversation",
+        mode: Optional[str] = "normal",
     ) -> Dict[str, Any]:
         """Creates a new conversation owned by the authenticated user_id."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         conv_id = str(uuid.uuid4())
+        clean_title = (title or "").strip() or "New Conversation"
+        clean_mode = (mode or "").strip().lower()
+        if clean_mode not in {"normal", "love", "expert"}:
+            clean_mode = "normal"
+
         doc = {
             "id": conv_id,
             "user_id": user_id,
-            "title": title.strip() or "New Conversation",
-            "mode": mode,
+            "title": clean_title,
+            "mode": clean_mode,
             "status": "active",
+            "message_count": 0,
             "created_at": now,
             "updated_at": now,
             "last_message_at": now,
@@ -136,6 +149,7 @@ class ConversationService:
                     res: Any = tbl.insert(doc).execute()
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         doc = res.data[0]
+                        doc["message_count"] = int(doc.get("message_count") or 0)
             except Exception as e:
                 logger.debug(f"Supabase create conversation failed: {e}")
 
@@ -149,15 +163,30 @@ class ConversationService:
         updates: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """
-        Updates conversation title, mode, status, or last_message_at.
+        Updates conversation title, mode, status, message_count, or last_message_at.
         Enforces user_id ownership and prevents transferring ownership.
         """
         existing = self.get_conversation(user_id, conversation_id)
         if not existing:
             return None
 
-        allowed = {"title", "mode", "status", "last_message_at", "summary", "metadata"}
-        sanitized = {k: v for k, v in updates.items() if k in allowed}
+        allowed = {"title", "mode", "status", "last_message_at", "message_count", "summary", "metadata"}
+        sanitized: Dict[str, Any] = {}
+        for k, v in updates.items():
+            if k in allowed:
+                if k == "title" and v is not None:
+                    t_clean = str(v).strip()
+                    if t_clean:
+                        sanitized["title"] = t_clean
+                elif k == "mode" and v is not None:
+                    m_clean = str(v).strip().lower()
+                    if m_clean in {"normal", "love", "expert"}:
+                        sanitized["mode"] = m_clean
+                elif k == "message_count" and v is not None:
+                    sanitized["message_count"] = int(v)
+                else:
+                    sanitized[k] = v
+
         sanitized["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if supabase_manager.is_connected and supabase_manager.client:
@@ -172,19 +201,21 @@ class ConversationService:
                     )
                     if res and isinstance(res.data, list) and len(res.data) > 0:
                         merged = {**existing, **res.data[0]}
+                        merged["message_count"] = int(merged.get("message_count") or 0)
                         self._user_conversations.setdefault(user_id, {})[conversation_id] = merged
                         return merged
             except Exception as e:
                 logger.debug(f"Supabase update conversation failed: {e}")
 
         merged = {**existing, **sanitized}
+        merged["message_count"] = int(merged.get("message_count") or 0)
         self._user_conversations.setdefault(user_id, {})[conversation_id] = merged
         return merged
 
     def delete_conversation(self, user_id: str, conversation_id: str) -> bool:
         """
         Deletes conversation if owned by authenticated user_id.
-        Performs safe soft deletion and cascading message removal in Supabase.
+        Performs safe deletion in Supabase (cascades messages) and cleans up in-memory caches.
         """
         existing = self.get_conversation(user_id, conversation_id)
         if not existing:
@@ -196,7 +227,6 @@ class ConversationService:
             try:
                 tbl: Any = supabase_manager.table("conversations")
                 if tbl is not None:
-                    # Soft-delete conversation status or hard-delete based on DB constraint
                     tbl.delete().eq("id", conversation_id).eq("user_id", user_id).execute()
             except Exception as e:
                 logger.debug(f"Supabase delete conversation failed: {e}")
@@ -205,6 +235,14 @@ class ConversationService:
             self._user_conversations[user_id][conversation_id]["status"] = "deleted"
             self._user_conversations[user_id][conversation_id]["updated_at"] = now
             del self._user_conversations[user_id][conversation_id]
+
+        # Clean up message cache for this conversation
+        try:
+            from core.services.message_service import message_service
+            message_service.delete_conversation_messages(conversation_id)
+        except Exception:
+            pass
+
         return True
 
 

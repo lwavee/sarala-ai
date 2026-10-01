@@ -37,7 +37,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from web.app import app
-from core.mongodb_client import generate_token
+from core.mongodb_client import generate_token, mongodb_manager
 from ai.tools.models import (
     ToolDefinition,
     ToolCall,
@@ -94,6 +94,12 @@ def run_tests():
     USER_A = "11111111-aaaa-1111-aaaa-111111111111"
     USER_B = "22222222-bbbb-2222-bbbb-222222222222"
     ADMIN_USER = "99999999-admn-9999-admn-999999999999"
+
+    mongodb_manager.enable_test_mock([
+        {"user_id": USER_A, "email": "user_a@test.com", "role": "user", "is_active": True},
+        {"user_id": USER_B, "email": "user_b@test.com", "role": "user", "is_active": True},
+        {"user_id": ADMIN_USER, "email": "admin@test.com", "role": "admin", "is_active": True},
+    ])
 
     token_user_a = generate_token({"id": USER_A, "email": "user_a@test.com", "role": "user"})
     token_user_b = generate_token({"id": USER_B, "email": "user_b@test.com", "role": "user"})

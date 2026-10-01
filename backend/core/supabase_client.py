@@ -26,7 +26,7 @@ class SupabaseManager:
         self.client: Any = None
         self._is_connected: bool = False
         self.supabase_url = os.getenv("SUPABASE_URL", "").strip().strip('"').strip("'")
-        self.supabase_key = os.getenv("SUPABASE_KEY", "").strip().strip('"').strip("'")
+        self.supabase_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")).strip().strip('"').strip("'")
         self._init_client()
 
     @property
@@ -40,7 +40,7 @@ class SupabaseManager:
             return
 
         self.supabase_url = os.getenv("SUPABASE_URL", "").strip().strip('"').strip("'")
-        self.supabase_key = os.getenv("SUPABASE_KEY", "").strip().strip('"').strip("'")
+        self.supabase_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")).strip().strip('"').strip("'")
 
         if not self.supabase_url or not self.supabase_key:
             logger.warning("SUPABASE_URL or SUPABASE_KEY missing from environment.")
