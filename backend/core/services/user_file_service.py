@@ -3,6 +3,7 @@ import time
 import uuid
 from typing import Optional, Dict, Any, List, Tuple
 from core.supabase_client import supabase_manager
+from core.services.file_storage_service import file_storage_service
 
 logger = logging.getLogger("sarala.services.user_file")
 
@@ -11,7 +12,7 @@ class UserFileService:
     """
     Manages file application metadata in Supabase PostgreSQL with resilient in-memory fallback.
     Enforces strict ownership: file.user_id == authenticated MongoDB user_id.
-    Binary data is stored independently; Supabase tracks metadata only.
+    Binary data is stored independently in partitioned storage; Supabase tracks metadata.
     """
 
     def __init__(self):
@@ -21,12 +22,14 @@ class UserFileService:
     def list_files(
         self,
         user_id: str,
+        conversation_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
         status: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Lists active (non-deleted) files belonging strictly to user_id.
+        Optionally filters by conversation_id and status.
         Returns (items, total_count).
         """
         if not user_id:
@@ -37,6 +40,8 @@ class UserFileService:
                 tbl: Any = supabase_manager.table("user_files")
                 if tbl is not None:
                     query = tbl.select("*", count="exact").eq("user_id", user_id).is_("deleted_at", "null")
+                    if conversation_id:
+                        query = query.eq("conversation_id", conversation_id)
                     if status:
                         query = query.eq("status", status)
 
@@ -56,6 +61,8 @@ class UserFileService:
 
         user_store = self._user_files.get(user_id, {})
         active = [f for f in user_store.values() if not f.get("deleted_at")]
+        if conversation_id:
+            active = [f for f in active if f.get("conversation_id") == conversation_id]
         if status:
             active = [f for f in active if f.get("status") == status]
         active.sort(key=lambda f: f.get("created_at", ""), reverse=True)
@@ -71,15 +78,28 @@ class UserFileService:
         mime_type: str = "application/octet-stream",
         storage_provider: str = "local",
         status: str = "uploaded",
+        conversation_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        file_extension: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        file_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Records file metadata in Supabase associated with the authenticated user_id."""
+        """Records file metadata in Supabase associated strictly with the authenticated user_id."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        file_id = str(uuid.uuid4())
+        fid = file_id or str(uuid.uuid4())
+        
+        # Determine extension if not provided
+        clean_name = original_name.strip()
+        if not file_extension:
+            file_extension = clean_name.rsplit(".", 1)[-1].lower() if "." in clean_name else ""
+
         doc = {
-            "id": file_id,
+            "id": fid,
             "user_id": user_id,
-            "original_name": original_name.strip(),
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "original_name": clean_name,
+            "file_extension": file_extension,
             "storage_provider": storage_provider,
             "storage_key": storage_key,
             "mime_type": mime_type,
@@ -101,7 +121,7 @@ class UserFileService:
             except Exception as e:
                 logger.debug(f"Supabase record file failed: {e}")
 
-        self._user_files.setdefault(user_id, {})[file_id] = doc
+        self._user_files.setdefault(user_id, {})[fid] = doc
         return doc
 
     def get_file(self, user_id: str, file_id: str) -> Optional[Dict[str, Any]]:
@@ -146,7 +166,7 @@ class UserFileService:
         if not existing:
             return None
 
-        allowed = {"original_name", "status", "metadata"}
+        allowed = {"original_name", "status", "metadata", "conversation_id", "message_id"}
         sanitized = {k: v for k, v in updates.items() if k in allowed and v is not None}
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         sanitized["updated_at"] = now
@@ -172,12 +192,26 @@ class UserFileService:
         self._user_files.setdefault(user_id, {})[file_id] = merged
         return merged
 
-    def delete_file(self, user_id: str, file_id: str) -> bool:
-        """Soft-deletes file metadata for authenticated user_id."""
+    def delete_file(self, user_id: str, file_id: str, delete_bytes: bool = True) -> bool:
+        """
+        Deletes stored binary bytes and soft-deletes file metadata for authenticated user_id.
+        Safely sequences operations to prevent unrecoverable orphan files.
+        """
         existing = self.get_file(user_id, file_id)
         if not existing:
             return False
 
+        # 1. Delete physical storage bytes
+        if delete_bytes:
+            provider = existing.get("storage_provider", "local")
+            key = existing.get("storage_key", "")
+            if key:
+                try:
+                    file_storage_service.delete_file(user_id, provider, key)
+                except Exception as e:
+                    logger.warning(f"Error cleaning up storage bytes for file {file_id}: {e}")
+
+        # 2. Soft-delete metadata
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if supabase_manager.is_connected and supabase_manager.client:
             try:

@@ -37,8 +37,14 @@ function ChatbotContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeLoadingChatIdRef = useRef<string | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const loadChatById = useCallback(async (id: string) => {
+    if (!id) return;
+    const targetId = String(id);
+    activeLoadingChatIdRef.current = targetId;
+
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
       audioPlayerRef.current.currentTime = 0;
@@ -50,24 +56,25 @@ function ChatbotContent() {
     setIsSpeaking(false);
     setIsVoiceLoading(false);
 
-    setChatId(String(id));
+    setChatId(targetId);
 
     // 1. If authenticated, fetch messages from persistent backend API
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
     if (session?.access_token) {
       try {
-        const res = await fetch(`${apiUrl}/api/conversations/${id}/messages`, {
+        const res = await fetch(`${apiUrl}/api/conversations/${targetId}/messages`, {
           headers: {
             "Authorization": `Bearer ${session.access_token}`,
           },
         });
+        if (activeLoadingChatIdRef.current !== targetId) return; // Stale response discarded
         if (res.ok) {
           const json = await res.json();
           const fetchedMsgs = json.data || json.messages || [];
           if (Array.isArray(fetchedMsgs) && fetchedMsgs.length > 0) {
             setMessages(
-              fetchedMsgs.map((m: any) => ({
-                id: m.id || String(Date.now()),
+              fetchedMsgs.map((m: any, idx: number) => ({
+                id: m.id || `${Date.now()}_${idx}`,
                 role: m.role === "assistant" ? "sarla" : (m.role === "sarla" ? "sarla" : "user"),
                 text: m.content || m.text || "",
               }))
@@ -90,7 +97,7 @@ function ChatbotContent() {
       const storageKey = user?.id ? `sarla_chat_history_${user.id}` : "sarla_guest_chat_history";
       const historyStr = localStorage.getItem(storageKey) || "[]";
       const history = JSON.parse(historyStr);
-      const found = history.find((h: any) => String(h.id) === String(id));
+      const found = history.find((h: any) => String(h.id) === targetId);
       if (found && Array.isArray(found.messages) && found.messages.length > 0) {
         setMessages(found.messages);
       } else {
@@ -371,45 +378,96 @@ function ChatbotContent() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileMessage: Message = { id: Date.now().toString(), role: "user", text: `📎 Uploaded: ${file.name}` };
+    // Check token
+    const token = session?.access_token || session?.token || (typeof window !== "undefined" ? localStorage.getItem("sarla_auth_token") : null);
+    if (!token) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "sarla",
+        text: "🔒 Please log in first to securely upload and manage your files in Sarala AI."
+      }]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const sizeFormatted = file.size > 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+      : `${(file.size / 1024).toFixed(1)} KB`;
+
+    const fileMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      text: `📎 Uploading: ${file.name} (${sizeFormatted})...`,
+    };
     setMessages(prev => [...prev, fileMessage]);
     setIsLoading(true);
+    setIsUploadingFile(true);
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("category", "general");
+    if (chatId && isUuid(chatId)) {
+      formData.append("conversation_id", chatId);
+    }
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
-      const res = await fetch(`${apiUrl}/api/chat/upload`, {
+      const res = await fetch(`${apiUrl}/api/files`, {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 
       const data = await res.json();
-      if (data.success) {
-        setMessages(prev => [...prev, {
+      if (res.ok && data.success) {
+        const fileDoc = data.data || data.file;
+        const successMsg: Message = {
           id: Date.now().toString(),
           role: "sarla",
-          text: `✅ ${data.message} I've memorized this file completely!`
-        }]);
+          text: `✅ File "${fileDoc.original_name}" (${sizeFormatted}) uploaded securely to your workspace vault!`,
+        };
+        setMessages(prev => {
+          const updated = [...prev.slice(0, -1), {
+            id: fileMessage.id,
+            role: "user" as const,
+            text: `📎 Attached: ${fileDoc.original_name} (${sizeFormatted})`,
+          }, successMsg];
+          if (chatId) saveToHistory(chatId, updated);
+          return updated;
+        });
       } else {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: "sarla",
-          text: `❌ Sorry, I couldn't process that file: ${data.error}`
-        }]);
+        const errorDetail = data.detail || data.error || data.message || "Failed to upload file.";
+        setMessages(prev => {
+          const updated = [...prev, {
+            id: Date.now().toString(),
+            role: "sarla" as const,
+            text: `❌ Upload failed: ${errorDetail}`,
+          }];
+          if (chatId) saveToHistory(chatId, updated);
+          return updated;
+        });
       }
     } catch (error) {
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: "sarla",
-        text: "❌ Error uploading file. Please try again."
-      }]);
+      setMessages(prev => {
+        const updated = [...prev, {
+          id: Date.now().toString(),
+          role: "sarla" as const,
+          text: "❌ Network error while uploading file. Please try again.",
+        }];
+        if (chatId) saveToHistory(chatId, updated);
+        return updated;
+      });
     } finally {
       setIsLoading(false);
+      setIsUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const isUuid = (val: string | null | undefined): boolean => {
+    if (!val) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
   };
 
   const handleSend = async () => {
@@ -417,22 +475,20 @@ function ChatbotContent() {
 
     const currentMode = getSavedMode();
 
-    const activeChatId = chatId || Date.now().toString();
-    if (!chatId) {
-      setChatId(activeChatId);
-      window.history.replaceState({}, '', `/chatbot?id=${activeChatId}`);
-    }
+    const conversationIdToSend = isUuid(chatId) ? chatId : undefined;
 
     const userName = profile?.full_name || profile?.nickname || user?.email?.split('@')[0] || "";
     const userNickname = profile?.nickname || "";
 
-    const userMessage: Message = { id: Date.now().toString(), role: "user", text: input };
+    const userMessage: Message = { id: Date.now().toString(), role: "user", text: input.trim() };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
     stopSpeaking();
-    saveToHistory(activeChatId, newMessages);
+    if (chatId) {
+      saveToHistory(chatId, newMessages);
+    }
 
     const clientMsgId = `client_msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -448,7 +504,7 @@ function ChatbotContent() {
         headers,
         body: JSON.stringify({ 
           message: userMessage.text, 
-          conversation_id: activeChatId,
+          conversation_id: conversationIdToSend,
           client_message_id: clientMsgId,
           theme_mode: currentMode,
           user_name: userName,
@@ -457,8 +513,23 @@ function ChatbotContent() {
       });
       
       const data = await res.json();
+
+      if (!res.ok) {
+        const errorDetail = data.detail || data.message || "Request failed. Please try again.";
+        const errMsg = typeof errorDetail === "string" ? errorDetail : "Maaf kijiye, message process karne mein error aaya.";
+        const errMessage: Message = { 
+          id: (Date.now() + 1).toString(), 
+          role: "sarla", 
+          text: `⚠️ ${errMsg}` 
+        };
+        const updatedMessages = [...newMessages, errMessage];
+        setMessages(updatedMessages);
+        if (chatId) saveToHistory(chatId, updatedMessages);
+        return;
+      }
+
       const responseText = data.response || "Sorry, koi error aa gaya.";
-      const returnedConvId = data.conversation_id || activeChatId;
+      const returnedConvId = data.conversation_id || chatId;
 
       if (returnedConvId && returnedConvId !== chatId) {
         setChatId(returnedConvId);
@@ -473,7 +544,9 @@ function ChatbotContent() {
       
       const updatedMessages = [...newMessages, sarlaMessage];
       setMessages(updatedMessages);
-      saveToHistory(returnedConvId, updatedMessages);
+      if (returnedConvId) {
+        saveToHistory(returnedConvId, updatedMessages);
+      }
 
       // Play audio response via in-memory stream if voice enabled
       if (isVoiceEnabled) {
@@ -655,17 +728,24 @@ function ChatbotContent() {
           <div className="flex items-center px-1 sm:px-2 py-1 sm:py-1.5">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 min-w-[36px] min-h-[36px] flex items-center justify-center text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] active:scale-95 transition-all cursor-pointer"
-              title="Upload File"
+              disabled={isUploadingFile || isLoading}
+              className={`p-1.5 min-w-[36px] min-h-[36px] flex items-center justify-center text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] active:scale-95 transition-all cursor-pointer ${
+                isUploadingFile ? "opacity-60 cursor-not-allowed" : ""
+              }`}
+              title={isUploadingFile ? "Uploading file..." : "Upload File"}
             >
-              <Paperclip size={19} />
+              {isUploadingFile ? (
+                <RefreshCw size={19} className="animate-spin text-[var(--accent)]" />
+              ) : (
+                <Paperclip size={19} />
+              )}
             </button>
             <input
               type="file"
               ref={fileInputRef}
               onChange={handleFileUpload}
               className="hidden"
-              accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg"
+              accept=".pdf,.txt,.md,.docx,.csv,.xlsx,.png,.jpg,.jpeg,.webp"
             />
 
             <input

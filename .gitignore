@@ -70,3 +70,6 @@ backend/voice/output/*.mp3
 backend/voice/benchmark/*.wav
 !backend/voice/benchmark/reference_clean.wav
 
+# File storage binaries (Task 1.16)
+storage/
+backend/storage/

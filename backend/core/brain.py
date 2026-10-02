@@ -153,10 +153,10 @@ class Brain:
 
         # Record domain interest for learning mode memory
         if domain:
-            interests = self.memory.recall("user_interests") or []
+            interests = self.memory.recall("user_interests", user_id=user_id) or []
             if domain not in interests:
                 interests.append(domain)
-                self.memory.remember("user_interests", interests)
+                self.memory.remember("user_interests", interests, user_id=user_id)
 
         # ---- Command Intents (System + Tools) ----
         if intent_type == "command":

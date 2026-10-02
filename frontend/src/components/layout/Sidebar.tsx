@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
-  MessageSquare, Plus, Trash2, Settings, Sparkles, X, ChevronDown, Crown, Pencil, Check
+  MessageSquare, Plus, Trash2, Settings, Sparkles, X, ChevronDown, Crown, Pencil, Check,
+  Search, Loader2
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -27,6 +28,70 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
     return null;
   });
+
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const searchReqIdRef = useRef<number>(0);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const curReqId = ++searchReqIdRef.current;
+
+    const timer = setTimeout(async () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8008";
+      if (session?.access_token) {
+        try {
+          const res = await fetch(`${apiUrl}/api/conversations/search?q=${encodeURIComponent(trimmed)}`, {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          });
+          if (curReqId === searchReqIdRef.current) {
+            if (res.ok) {
+              const json = await res.json();
+              const convs = json.data || json.conversations || [];
+              const mapped = (convs || []).map((c: any) => ({
+                id: c.id,
+                title: c.title || "Conversation",
+                mode: c.mode || "normal",
+                createdAt: new Date(c.created_at || Date.now()).getTime(),
+                updatedAt: new Date(c.last_message_at || c.updated_at || Date.now()).getTime(),
+              }));
+              setSearchResults(mapped);
+            } else {
+              setSearchResults([]);
+            }
+            setIsSearching(false);
+          }
+          return;
+        } catch (err) {
+          console.debug("Conversation search error:", err);
+        }
+      }
+
+      // Offline or guest search fallback
+      if (curReqId === searchReqIdRef.current) {
+        const lower = trimmed.toLowerCase();
+        const localMatches = chatHistory.filter((c) =>
+          (c.title || "").toLowerCase().includes(lower)
+        );
+        setSearchResults(localMatches);
+        setIsSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [searchQuery, session?.access_token, chatHistory]);
 
   useEffect(() => {
     const onAuthUpdated = () => {
@@ -293,7 +358,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           {/* New Chat Button */}
           <button
             onClick={handleCreateNewChat}
-            className="flex items-center gap-2.5 px-4 py-3 mb-3 rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-500 hover:opacity-95 active:scale-[0.98] text-white font-semibold text-sm shadow-md transition-all group cursor-pointer w-full text-left min-h-[44px]"
+            className="flex items-center gap-2.5 px-4 py-3 mb-2 rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-500 hover:opacity-95 active:scale-[0.98] text-white font-semibold text-sm shadow-md transition-all group cursor-pointer w-full text-left min-h-[44px]"
           >
             <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center group-hover:rotate-90 transition-transform">
               <Plus size={16} className="text-white" />
@@ -301,9 +366,70 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <span>New Chat</span>
           </button>
 
+          {/* Conversation Search Bar */}
+          <div className="relative mb-3">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--theme-text-muted)]">
+              {isSearching ? <Loader2 size={13} className="animate-spin text-[var(--accent)]" /> : <Search size={13} />}
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search conversations..."
+              className="w-full pl-8 pr-7 py-2 bg-[var(--surface-input)] border border-[var(--border-color)] rounded-xl text-xs text-[var(--theme-text-primary)] placeholder-[var(--theme-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)] transition-colors cursor-pointer"
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
           {/* Chat History Section */}
           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-1 mb-2">
-            {chatHistory.length === 0 ? (
+            {searchResults !== null ? (
+              searchResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 px-3 text-center">
+                  <div className="w-9 h-9 rounded-xl bg-[var(--surface-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--theme-text-muted)] mb-2 shadow-2xs">
+                    <Search size={16} />
+                  </div>
+                  <p className="text-xs font-semibold text-[var(--theme-text-primary)]">No conversations found</p>
+                  <p className="text-[11px] text-[var(--theme-text-muted)] mt-1 leading-relaxed">
+                    No chats matching &quot;{searchQuery.trim()}&quot;
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-[var(--theme-text-muted)] px-3 tracking-wide flex items-center justify-between">
+                    <span>Search Results</span>
+                    <span className="text-[10px] bg-[var(--surface-card)] px-1.5 py-0.5 rounded-md border border-[var(--border-color)]">{searchResults.length}</span>
+                  </div>
+                  {searchResults.map((chat) => {
+                    const isActive = String(activeChatId) === String(chat.id);
+                    return (
+                      <div
+                        key={chat.id}
+                        onClick={() => handleSelectChat(chat.id)}
+                        className={`group/item flex items-center justify-between px-3 py-2.5 min-h-[40px] rounded-xl text-xs cursor-pointer transition-all duration-150 relative active:scale-[0.99] ${
+                          isActive
+                            ? "bg-[var(--surface-input)] text-[var(--theme-text-primary)] font-semibold shadow-xs border border-[var(--border-color)]"
+                            : "text-[var(--theme-text-secondary)] hover:text-[var(--theme-text-primary)] hover:bg-[var(--pill-hover)] border border-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-2">
+                          <MessageSquare size={14} className="shrink-0 text-[var(--theme-text-muted)] group-hover/item:text-[var(--accent)] transition-colors" />
+                          <span className="truncate">{chat.title || "New Conversation"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : chatHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 px-3 text-center">
                 <div className="w-10 h-10 rounded-2xl bg-[var(--surface-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--theme-text-muted)] mb-2 shadow-2xs">
                   <MessageSquare size={18} />

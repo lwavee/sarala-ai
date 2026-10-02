@@ -3,11 +3,12 @@ import os
 import re
 import json
 import time
+import uuid
 import io
 import urllib.parse
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, HTTPException, Header, Body, UploadFile, File, Form, Depends
+from fastapi import FastAPI, Query, HTTPException, Header, Body, UploadFile, File, Form, Depends, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +25,13 @@ from core.services import (
     preferences_service,
     conversation_service,
     message_service,
+    chat_idempotency_tracker,
     memory_service,
     memory_extraction_service,
     user_file_service,
+    file_storage_service,
 )
+from core.services.file_storage_service import validate_file_content, sanitize_filename
 from voice.natural_voice import natural_voice_manager, clean_text_for_synthesis
 from voice.voice_service import get_voice_health, synthesize_sarala_voice, VoiceSynthesisError
 from ai.agent import (
@@ -480,6 +484,53 @@ async def update_preferences(
     return {"success": True, "data": updated, "preferences": updated}
 
 # ── Conversation Endpoints (Supabase) ────────────────────────────────────────
+@app.get("/api/conversations/search")
+async def search_conversations(
+    q: Optional[str] = Query(None, description="Search term for titles and message contents"),
+    search: Optional[str] = Query(None, description="Alias for q"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("last_message_at", pattern="^(last_message_at|updated_at|created_at|title)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    status: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None, description="Ignored: user_id is strictly derived from auth token"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Search authenticated user's conversations by title and message content.
+    Prevents ID spoofing: user_id is derived exclusively from authenticated credentials.
+    """
+    query_str = q if q is not None else search
+    clean_q = (query_str or "").strip()
+
+    if len(clean_q) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Search query exceeds maximum length of 500 characters."
+        )
+
+    convs, total = conversation_service.search_conversations(
+        user_id=current_user.user_id,
+        query=clean_q,
+        limit=limit,
+        offset=offset,
+        sort_by=sort,
+        sort_order=order,
+        status=status,
+    )
+    return {
+        "success": True,
+        "data": convs,
+        "conversations": convs,
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "total": total,
+        },
+        "query": clean_q,
+    }
+
+
 @app.get("/api/conversations")
 async def list_conversations(
     limit: int = Query(50, ge=1, le=100),
@@ -488,14 +539,29 @@ async def list_conversations(
     status: Optional[str] = Query(None),
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Lists conversations strictly owned by current_user.user_id."""
-    convs, total = conversation_service.list_conversations(
-        current_user.user_id,
-        limit=limit,
-        offset=offset,
-        search=search,
-        status=status,
-    )
+    """Lists conversations strictly owned by current_user.user_id with full search support."""
+    clean_search = (search or "").strip()
+    if clean_search:
+        if len(clean_search) > 500:
+            raise HTTPException(
+                status_code=400,
+                detail="Search query exceeds maximum length of 500 characters."
+            )
+        convs, total = conversation_service.search_conversations(
+            current_user.user_id,
+            query=clean_search,
+            limit=limit,
+            offset=offset,
+            status=status,
+        )
+    else:
+        convs, total = conversation_service.list_conversations(
+            current_user.user_id,
+            limit=limit,
+            offset=offset,
+            search=None,
+            status=status,
+        )
     return {
         "success": True,
         "data": convs,
@@ -515,8 +581,8 @@ async def create_conversation(
     """Creates a new conversation owned by current_user.user_id."""
     conv = conversation_service.create_conversation(
         current_user.user_id,
-        title=str(req.title or "New Conversation"),
-        mode=str(req.mode or "normal"),
+        title=req.title or "New Conversation",
+        mode=req.mode or "normal",
     )
     return {"success": True, "data": conv, "conversation": conv}
 
@@ -595,7 +661,8 @@ async def create_message(
         role=req.role,
         content=req.content,
         message_type=req.message_type,
-        metadata=req.metadata
+        metadata=req.metadata,
+        client_message_id=req.client_message_id,
     )
     if not msg:
         raise HTTPException(status_code=404, detail="Conversation not found or not owned by you.")
@@ -707,17 +774,19 @@ async def search_relevant_memories(
     relevant = memory_service.retrieve_relevant_memories(current_user.user_id, q, limit=limit)
     return {"success": True, "data": relevant, "memories": relevant}
 
-# ── User File Metadata Endpoints (Supabase) ──────────────────────────────────
+# ── User File Management & Storage Endpoints ─────────────────────────────────
 @app.get("/api/files")
 async def list_files(
+    conversation_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None),
-    current_user: CurrentUser = Depends(get_current_user)
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Lists file metadata owned by current_user.user_id."""
+    """Lists file metadata owned strictly by current_user.user_id."""
     files, total = user_file_service.list_files(
-        current_user.user_id,
+        user_id=current_user.user_id,
+        conversation_id=conversation_id,
         limit=limit,
         offset=offset,
         status=status,
@@ -730,63 +799,298 @@ async def list_files(
             "limit": limit,
             "offset": offset,
             "total": total,
-        }
+        },
     }
 
+
 @app.post("/api/files")
-@app.post("/api/files/metadata")
-async def record_file(
-    req: RecordFileRequest,
-    current_user: CurrentUser = Depends(get_current_user)
+@app.post("/api/files/upload")
+async def upload_file(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Records file metadata tied to current_user.user_id."""
-    f = user_file_service.record_file(
+    """
+    Handles file upload and metadata recording.
+    Accepts:
+    1. multipart/form-data: Binary file upload with optional conversation_id and message_id.
+    2. application/json: Direct metadata recording (backwards compatibility).
+    Enforces strict ownership: canonical user_id from current_user only.
+    """
+    content_type = request.headers.get("content-type", "").lower()
+
+    # ── Path A: Multipart File Upload (Binary + Metadata) ─────────────────────
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        raw_file = form.get("file")
+        if not raw_file or not hasattr(raw_file, "read"):
+            raise HTTPException(status_code=400, detail="Missing required 'file' field in multipart form data.")
+        uploaded_file: Any = raw_file
+
+        raw_conv = form.get("conversation_id")
+        conv_id: Optional[str] = raw_conv.strip() if isinstance(raw_conv, str) and raw_conv.strip() else None
+        if conv_id:
+            conv = conversation_service.get_conversation(current_user.user_id, conv_id)
+            if not conv:
+                raise HTTPException(status_code=404, detail="Conversation not found or access denied.")
+
+        raw_msg = form.get("message_id")
+        msg_id: Optional[str] = raw_msg.strip() if isinstance(raw_msg, str) and raw_msg.strip() else None
+        if msg_id:
+            msg = message_service.get_message(current_user.user_id, msg_id)
+            if not msg:
+                raise HTTPException(status_code=404, detail="Message not found or access denied.")
+
+        # Read binary file content
+        content = await uploaded_file.read()
+        raw_filename = getattr(uploaded_file, "filename", "") or "unnamed_file"
+        declared_mime = getattr(uploaded_file, "content_type", None)
+
+        # Validate file content, signature, and size
+        is_valid, error_msg, safe_filename, ext, norm_mime = validate_file_content(
+            original_name=raw_filename,
+            content=content,
+            declared_mime=declared_mime,
+        )
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        file_id = str(uuid.uuid4())
+
+        # 1. Save binary file to storage provider
+        try:
+            storage_provider, storage_key = file_storage_service.save_file(
+                user_id=current_user.user_id,
+                file_id=file_id,
+                safe_filename=safe_filename,
+                content=content,
+                mime_type=norm_mime,
+            )
+        except Exception as e:
+            logger.error(f"Failed to store file bytes for user {current_user.user_id}: {e}")
+            raise HTTPException(status_code=500, detail="Storage service error: unable to persist file content.")
+
+        # 2. Persist metadata in database
+        try:
+            doc = user_file_service.record_file(
+                user_id=current_user.user_id,
+                original_name=safe_filename,
+                storage_key=storage_key,
+                size_bytes=len(content),
+                mime_type=norm_mime,
+                storage_provider=storage_provider,
+                status="uploaded",
+                conversation_id=conv_id,
+                message_id=msg_id,
+                file_extension=ext,
+                file_id=file_id,
+            )
+            return {"success": True, "data": doc, "file": doc}
+        except Exception as e:
+            # Handle database failure safely: clean up orphaned storage bytes
+            logger.error(f"Metadata recording failed for {file_id}, rolling back storage: {e}")
+            file_storage_service.delete_file(current_user.user_id, storage_provider, storage_key)
+            raise HTTPException(status_code=500, detail="Database failure: unable to record file metadata.")
+
+    # ── Path B: JSON Metadata Record (Backwards Compatibility) ────────────────
+    try:
+        body_bytes = await request.body()
+        data = json.loads(body_bytes)
+        req = RecordFileRequest(**data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON request: {e}")
+
+    if req.conversation_id:
+        conv = conversation_service.get_conversation(current_user.user_id, req.conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found or access denied.")
+
+    if req.message_id:
+        msg = message_service.get_message(current_user.user_id, req.message_id)
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found or access denied.")
+
+    safe_name = sanitize_filename(req.original_name)
+    ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+
+    doc = user_file_service.record_file(
         user_id=current_user.user_id,
-        original_name=req.original_name,
+        original_name=safe_name,
         storage_key=req.storage_key,
         size_bytes=req.size_bytes,
         mime_type=req.mime_type,
         storage_provider=req.storage_provider,
         status=req.status,
+        conversation_id=req.conversation_id,
+        message_id=req.message_id,
+        file_extension=req.file_extension or ext,
         metadata=req.metadata,
     )
-    return {"success": True, "data": f, "file": f}
+    return {"success": True, "data": doc, "file": doc}
+
+
+@app.post("/api/files/metadata")
+async def record_file_metadata(
+    req: RecordFileRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Direct JSON metadata recording endpoint for compatibility."""
+    if req.conversation_id:
+        conv = conversation_service.get_conversation(current_user.user_id, req.conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found or access denied.")
+
+    if req.message_id:
+        msg = message_service.get_message(current_user.user_id, req.message_id)
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found or access denied.")
+
+    safe_name = sanitize_filename(req.original_name)
+    ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+
+    doc = user_file_service.record_file(
+        user_id=current_user.user_id,
+        original_name=safe_name,
+        storage_key=req.storage_key,
+        size_bytes=req.size_bytes,
+        mime_type=req.mime_type,
+        storage_provider=req.storage_provider,
+        status=req.status,
+        conversation_id=req.conversation_id,
+        message_id=req.message_id,
+        file_extension=req.file_extension or ext,
+        metadata=req.metadata,
+    )
+    return {"success": True, "data": doc, "file": doc}
+
 
 @app.get("/api/files/{file_id}")
-async def get_file(
+async def get_file_metadata(
     file_id: str,
-    current_user: CurrentUser = Depends(get_current_user)
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Retrieves file metadata owned by current_user.user_id."""
+    """Retrieves file metadata owned strictly by current_user.user_id."""
     f = user_file_service.get_file(current_user.user_id, file_id)
     if not f:
         raise HTTPException(status_code=404, detail="File metadata not found.")
     return {"success": True, "data": f, "file": f}
+
+
+@app.get("/api/files/{file_id}/download")
+@app.get("/api/files/{file_id}/content")
+async def download_file(
+    file_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Downloads or streams file content.
+    Enforces authorization: User must own the file.
+    User B cannot download User A's file.
+    """
+    f = user_file_service.get_file(current_user.user_id, file_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found or access denied.")
+
+    provider = f.get("storage_provider", "local")
+    storage_key = f.get("storage_key", "")
+    mime_type = f.get("mime_type") or "application/octet-stream"
+    original_name = sanitize_filename(f.get("original_name") or f"file_{file_id}")
+
+    try:
+        content = file_storage_service.read_file(
+            user_id=current_user.user_id,
+            storage_provider=provider,
+            storage_key=storage_key,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied to storage resource.")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File binary not found in storage.")
+    except Exception as e:
+        logger.error(f"Error reading file bytes for file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve file binary.")
+
+    quoted_name = urllib.parse.quote(original_name)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{original_name}"; filename*=UTF-8\'\'{quoted_name}',
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    }
+    return Response(
+        content=content,
+        media_type=mime_type,
+        headers=headers,
+    )
+
+
+@app.get("/api/files/{file_id}/signed-url")
+async def get_file_signed_url(
+    file_id: str,
+    expires_in: int = Query(3600, ge=60, le=86400),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Generates a short-lived authorized signed URL if supported by storage provider."""
+    f = user_file_service.get_file(current_user.user_id, file_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found or access denied.")
+
+    url = file_storage_service.get_signed_url(
+        user_id=current_user.user_id,
+        storage_provider=f.get("storage_provider", "local"),
+        storage_key=f.get("storage_key", ""),
+        expires_in=expires_in,
+    )
+    if not url:
+        return {
+            "success": True,
+            "has_signed_url": False,
+            "download_url": f"/api/files/{file_id}/download",
+        }
+    return {
+        "success": True,
+        "has_signed_url": True,
+        "signed_url": url,
+        "download_url": f"/api/files/{file_id}/download",
+    }
+
 
 @app.patch("/api/files/{file_id}")
 @app.put("/api/files/{file_id}")
 async def update_file(
     file_id: str,
     req: UpdateFileRequest,
-    current_user: CurrentUser = Depends(get_current_user)
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """Updates file metadata owned by current_user.user_id."""
+    if req.conversation_id:
+        conv = conversation_service.get_conversation(current_user.user_id, req.conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found or access denied.")
+
+    if req.message_id:
+        msg = message_service.get_message(current_user.user_id, req.message_id)
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found or access denied.")
+
     fields = req.model_dump(exclude_unset=True)
     f = user_file_service.update_file(current_user.user_id, file_id, fields)
     if not f:
         raise HTTPException(status_code=404, detail="File metadata not found.")
     return {"success": True, "data": f, "file": f}
 
+
 @app.delete("/api/files/{file_id}")
 async def delete_file(
     file_id: str,
-    current_user: CurrentUser = Depends(get_current_user)
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Soft-deletes file metadata owned by current_user.user_id."""
-    success = user_file_service.delete_file(current_user.user_id, file_id)
+    """
+    Deletes file binary and metadata owned by current_user.user_id.
+    Prevents User A from deleting User B's files.
+    """
+    success = user_file_service.delete_file(current_user.user_id, file_id, delete_bytes=True)
     if not success:
         raise HTTPException(status_code=404, detail="File metadata not found.")
-    return {"success": True, "message": "File metadata deleted."}
+    return {"success": True, "message": "File deleted successfully."}
 
 def _generate_conversation_title(msg: str) -> str:
     clean = re.sub(r'[\r\n\t]+', ' ', msg).strip()
@@ -807,15 +1111,15 @@ async def chat(
     Uses authenticated Supabase user identity when token is provided, preventing user spoofing.
     Uses RAM streaming (/voice/stream) for voice synthesis to avoid writing permanent files.
     """
-    msg = req.message.strip()
+    msg = req.message.strip() if req.message else ""
     if not msg:
-        return JSONResponse({
-            "response": "Kuch to boliye 😊",
-            "emotion": "friendly",
-            "gesture": "greetingWave",
-            "audio_url": None
-        })
-    
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    if len(msg) > 50000:
+        raise HTTPException(
+            status_code=400,
+            detail="Message exceeds maximum allowed length of 50000 characters."
+        )
+
     # Validate requested model if provided (Allowlist check)
     if req.model:
         from ai.models import model_registry
@@ -838,51 +1142,79 @@ async def chat(
     user_nickname = current_user.nickname if current_user else (req.user_nickname or "")
     user_identifier = f"{user_name} ({current_user.id})" if current_user else f"Guest ({req.user_name or 'Anonymous'})"
 
+    # Idempotency check: if this client_message_id was already successfully completed, return cached response
+    if current_user and req.client_message_id:
+        cached_resp = chat_idempotency_tracker.get_completed(user_id, req.client_message_id)
+        if cached_resp:
+            logger.info(f"Duplicate chat request suppressed via idempotency for client_message_id={req.client_message_id}")
+            return JSONResponse(cached_resp)
+
     # Persistent conversation integration
     active_conv_id = req.conversation_id
     if current_user:
-        try:
-            conv = None
-            if active_conv_id:
-                conv = conversation_service.get_conversation(user_id, active_conv_id)
+        conv = None
+        if active_conv_id:
+            conv = conversation_service.get_conversation(user_id, active_conv_id)
             if not conv:
-                initial_title = _generate_conversation_title(msg)
-                conv = conversation_service.create_conversation(
-                    user_id=user_id,
-                    title=initial_title,
-                    mode=req.theme_mode,
+                raise HTTPException(
+                    status_code=404,
+                    detail="Conversation not found or not owned by you."
                 )
-                active_conv_id = str(conv["id"])
-            else:
-                active_conv_id = str(conv["id"])
-                # If title is still default, update it with first meaningful user prompt
-                current_title = (conv.get("title") or "").strip()
-                if current_title in ("New Conversation", "Untitled Conversation", "", None):
-                    new_title = _generate_conversation_title(msg)
-                    conversation_service.update_conversation(user_id, active_conv_id, {"title": new_title})
-                    conv["title"] = new_title
-
-            # Persist user message first (with idempotency support)
-            message_service.create_message(
+        else:
+            initial_title = _generate_conversation_title(msg)
+            conv = conversation_service.create_conversation(
                 user_id=user_id,
-                conversation_id=active_conv_id,
-                role="user",
-                content=msg,
-                message_type="text",
-                client_message_id=req.client_message_id,
+                title=initial_title,
+                mode=req.theme_mode,
             )
+            active_conv_id = str(conv["id"])
 
-            # Check for explicit forget directives before response generation
-            try:
-                cand = memory_extraction_service.extract_candidates(msg)
-                if cand.get("should_forget") and cand.get("forget_targets"):
-                    for target in cand["forget_targets"]:
-                        memory_service.delete_memory(user_id, target)
-            except Exception as f_err:
-                logger.warning(f"Error processing forget directive: {f_err}")
+        # If title is still default, update it with first meaningful user prompt
+        current_title = (conv.get("title") or "").strip()
+        if current_title in ("New Conversation", "Untitled Conversation", "", None):
+            new_title = _generate_conversation_title(msg)
+            conversation_service.update_conversation(user_id, active_conv_id, {"title": new_title})
+            conv["title"] = new_title
 
-        except Exception as err:
-            logger.warning(f"Error persisting user message to conversation {active_conv_id}: {err}")
+        attached_files_meta = []
+        if req.file_ids:
+            for fid in req.file_ids:
+                f_doc = user_file_service.get_file(user_id, fid)
+                if f_doc:
+                    if not f_doc.get("conversation_id"):
+                        user_file_service.update_file(user_id, fid, {"conversation_id": active_conv_id})
+                    attached_files_meta.append({
+                        "id": f_doc["id"],
+                        "original_name": f_doc["original_name"],
+                        "size_bytes": f_doc["size_bytes"],
+                        "mime_type": f_doc["mime_type"],
+                    })
+
+        msg_meta = {}
+        if attached_files_meta:
+            msg_meta["attachments"] = attached_files_meta
+
+        # Persist user message first (with idempotency support)
+        message_service.create_message(
+            user_id=user_id,
+            conversation_id=active_conv_id,
+            role="user",
+            content=msg,
+            message_type="attachment" if attached_files_meta else "text",
+            metadata=msg_meta,
+            client_message_id=req.client_message_id,
+        )
+
+        # Check for explicit forget directives before response generation
+        try:
+            cand = memory_extraction_service.extract_candidates(msg)
+            if cand.get("should_forget") and cand.get("forget_targets"):
+                for target in cand["forget_targets"]:
+                    memory_service.delete_memory(user_id, target)
+        except Exception as f_err:
+            logger.warning(f"Error processing forget directive: {f_err}")
+    elif active_conv_id:
+        raise HTTPException(status_code=401, detail="Authentication required to access conversation.")
 
     try:
         # Check if agent execution is explicitly requested or inferred
@@ -899,7 +1231,15 @@ async def chat(
                 )
                 if run.status == AgentRunStatus.COMPLETED and run.final_result:
                     summary_text = run.final_result.get("summary", "Agent workflow completed successfully.")
-                    return JSONResponse({
+                    if current_user and active_conv_id:
+                        message_service.create_message(
+                            user_id=user_id,
+                            conversation_id=active_conv_id,
+                            role="assistant",
+                            content=summary_text,
+                            message_type="text",
+                        )
+                    resp_data = {
                         "response": summary_text,
                         "conversation_id": active_conv_id,
                         "agent_run_id": run.id,
@@ -907,9 +1247,12 @@ async def chat(
                         "emotion": "friendly",
                         "gesture": "nodding",
                         "audio_url": None,
-                    })
+                    }
+                    if current_user and req.client_message_id:
+                        chat_idempotency_tracker.set_completed(user_id, req.client_message_id, resp_data)
+                    return JSONResponse(resp_data)
                 elif run.status == AgentRunStatus.WAITING_FOR_APPROVAL:
-                    return JSONResponse({
+                    resp_data = {
                         "response": f"Agent created a plan but is paused waiting for your approval to proceed with one of the steps. (Run ID: {run.id})",
                         "conversation_id": active_conv_id,
                         "agent_run_id": run.id,
@@ -918,9 +1261,10 @@ async def chat(
                         "emotion": "thoughtful",
                         "gesture": "stopGesture",
                         "audio_url": None,
-                    })
+                    }
+                    return JSONResponse(resp_data)
                 elif run.status == AgentRunStatus.FAILED:
-                    return JSONResponse({
+                    resp_data = {
                         "response": f"Agent workflow could not complete: {run.failure_reason}",
                         "conversation_id": active_conv_id,
                         "agent_run_id": run.id,
@@ -929,7 +1273,8 @@ async def chat(
                         "emotion": "concerned",
                         "gesture": "calmGesture",
                         "audio_url": None,
-                    })
+                    }
+                    return JSONResponse(resp_data)
             except Exception as agent_err:
                 logger.warning(f"Agent execution encountered error: {agent_err}. Falling back to standard chat.")
 
@@ -948,13 +1293,15 @@ async def chat(
         # Persist assistant response to conversation
         if current_user and active_conv_id:
             try:
-                message_service.create_message(
+                asst_msg = message_service.create_message(
                     user_id=user_id,
                     conversation_id=active_conv_id,
                     role="assistant",
                     content=response,
                     message_type="text",
                 )
+                if not asst_msg:
+                    logger.warning(f"Failed to persist assistant message to conversation {active_conv_id}")
             except Exception as err:
                 logger.warning(f"Error persisting assistant message to conversation {active_conv_id}: {err}")
 
@@ -984,14 +1331,22 @@ async def chat(
         encoded_speech = urllib.parse.quote(cleaned_speech)
         audio_url = f"/voice/stream?text={encoded_speech}&language=hi"
 
-        return JSONResponse({
+        resp_payload = {
             "response": response,
             "conversation_id": active_conv_id,
             "emotion": emotion,
             "gesture": gesture,
             "audio_url": audio_url,
             "voice_engine": "in_memory_stream"
-        })
+        }
+
+        # Cache completed response for idempotency
+        if current_user and req.client_message_id:
+            chat_idempotency_tracker.set_completed(user_id, req.client_message_id, resp_payload)
+
+        return JSONResponse(resp_payload)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat Endpoint Error: {str(e)}")
         # Safe fallback: still attempt durable memory extraction from user message
@@ -1377,6 +1732,8 @@ async def chat_stream(
     msg = req.message.strip()
     if not msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    if len(msg) > 50000:
+        raise HTTPException(status_code=400, detail="Message exceeds maximum allowed length of 50000 characters.")
 
     # Validate model allowlist
     if req.model:
@@ -1394,30 +1751,29 @@ async def chat_stream(
     # Persistent conversation integration
     active_conv_id = req.conversation_id
     if current_user:
-        try:
-            conv = None
-            if active_conv_id:
-                conv = conversation_service.get_conversation(user_id, active_conv_id)
+        conv = None
+        if active_conv_id:
+            conv = conversation_service.get_conversation(user_id, active_conv_id)
             if not conv:
-                conv = conversation_service.create_conversation(
-                    user_id=user_id,
-                    title=_generate_conversation_title(msg),
-                    mode=req.theme_mode,
-                )
-                active_conv_id = str(conv["id"])
-            else:
-                active_conv_id = str(conv["id"])
-
-            message_service.create_message(
+                raise HTTPException(status_code=404, detail="Conversation not found or not owned by you.")
+        else:
+            conv = conversation_service.create_conversation(
                 user_id=user_id,
-                conversation_id=active_conv_id,
-                role="user",
-                content=msg,
-                message_type="text",
-                client_message_id=req.client_message_id,
+                title=_generate_conversation_title(msg),
+                mode=req.theme_mode,
             )
-        except Exception as err:
-            logger.warning(f"Error persisting user message in stream: {err}")
+            active_conv_id = str(conv["id"])
+
+        message_service.create_message(
+            user_id=user_id,
+            conversation_id=active_conv_id,
+            role="user",
+            content=msg,
+            message_type="text",
+            client_message_id=req.client_message_id,
+        )
+    elif active_conv_id:
+        raise HTTPException(status_code=401, detail="Authentication required to access conversation.")
 
     async def event_generator():
         from ai.orchestrator import ai_orchestrator

@@ -83,6 +83,170 @@ class ConversationService:
         total = len(filtered)
         return filtered[offset : offset + limit], total
 
+    def search_conversations(
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "last_message_at",
+        sort_order: str = "desc",
+        status: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Performs secure, user-isolated conversation search for authenticated user_id.
+        Searches:
+        1. Conversation title (case-insensitive substring)
+        2. Message content in user's conversations (deduplicated)
+        
+        If query is empty/whitespace, returns recent conversations.
+        Results are deduplicated, sorted, and paginated.
+        Never returns another user's conversations.
+        """
+        if not user_id:
+            return [], 0
+
+        # Validate sorting
+        valid_sort_fields = {"last_message_at", "updated_at", "created_at", "title"}
+        if sort_by not in valid_sort_fields:
+            sort_by = "last_message_at"
+        is_desc = str(sort_order or "desc").lower() != "asc"
+
+        clean_query = query.strip() if query else ""
+
+        def _get_sort_val(x: Dict[str, Any]) -> Any:
+            v = x.get(sort_by)
+            if v is None:
+                v = x.get("last_message_at") or x.get("created_at") or ""
+            if sort_by == "title":
+                return str(v).lower()
+            return str(v)
+
+        # If query is empty, return recent conversations respecting sort and pagination
+        if not clean_query:
+            if supabase_manager.is_connected and supabase_manager.client:
+                try:
+                    tbl: Any = supabase_manager.table("conversations")
+                    if tbl is not None:
+                        q_all = tbl.select("*", count="exact").eq("user_id", user_id)
+                        if status:
+                            q_all = q_all.eq("status", status)
+                        else:
+                            q_all = q_all.neq("status", "deleted")
+                        res: Any = (
+                            q_all.order(sort_by, desc=is_desc)
+                            .range(offset, offset + limit - 1)
+                            .execute()
+                        )
+                        if res and isinstance(res.data, list):
+                            total = res.count if hasattr(res, "count") and res.count is not None else len(res.data)
+                            user_store = self._user_conversations.setdefault(user_id, {})
+                            for row in res.data:
+                                row["message_count"] = int(row.get("message_count") or 0)
+                                user_store[str(row["id"])] = row
+                            return res.data, total
+                except Exception as e:
+                    logger.debug(f"Supabase empty search failed for {user_id}: {e}")
+
+            user_store = self._user_conversations.get(user_id, {})
+            filtered = [
+                c for c in user_store.values()
+                if (not status and c.get("status") != "deleted") or (status and c.get("status") == status)
+            ]
+            for c in filtered:
+                c["message_count"] = int(c.get("message_count") or 0)
+            filtered.sort(key=_get_sort_val, reverse=is_desc)
+            total = len(filtered)
+            return filtered[offset : offset + limit], total
+
+        matched_map: Dict[str, Dict[str, Any]] = {}
+
+        # 1. Supabase Query
+        if supabase_manager.is_connected and supabase_manager.client:
+            try:
+                tbl: Any = supabase_manager.table("conversations")
+                if tbl is not None:
+                    # A. Search by title
+                    q_title = tbl.select("*").eq("user_id", user_id)
+                    if status:
+                        q_title = q_title.eq("status", status)
+                    else:
+                        q_title = q_title.neq("status", "deleted")
+                    q_title = q_title.ilike("title", f"%{clean_query}%")
+                    res_title: Any = q_title.limit(100).execute()
+
+                    if res_title and isinstance(res_title.data, list):
+                        for c in res_title.data:
+                            cid = str(c.get("id"))
+                            c["message_count"] = int(c.get("message_count") or 0)
+                            matched_map[cid] = c
+
+                    # B. Search by message content
+                    from core.services.message_service import message_service
+                    matched_cids = message_service.find_matching_conversation_ids(
+                        user_id=user_id,
+                        query=clean_query,
+                        limit=100,
+                    )
+
+                    missing_cids = [cid for cid in matched_cids if cid not in matched_map]
+                    for cid in missing_cids:
+                        conv_record = self.get_conversation(user_id, cid)
+                        if conv_record and conv_record.get("status") != "deleted":
+                            if not status or conv_record.get("status") == status:
+                                matched_map[str(conv_record["id"])] = conv_record
+
+                    all_matched = list(matched_map.values())
+                    user_store = self._user_conversations.setdefault(user_id, {})
+                    for row in all_matched:
+                        user_store[str(row["id"])] = row
+
+                    all_matched.sort(
+                        key=_get_sort_val,
+                        reverse=is_desc,
+                    )
+                    total = len(all_matched)
+                    return all_matched[offset : offset + limit], total
+
+            except Exception as e:
+                logger.debug(f"Supabase search conversations failed for {user_id}: {e}")
+
+        # 2. Local memory fallback (strictly partitioned by user_id)
+        user_store = self._user_conversations.get(user_id, {})
+        q_lower = clean_query.lower()
+
+        # Title matching
+        for cid, c in user_store.items():
+            if c.get("status") == "deleted":
+                continue
+            if status and c.get("status") != status:
+                continue
+            if q_lower in c.get("title", "").lower():
+                c["message_count"] = int(c.get("message_count") or 0)
+                matched_map[cid] = c
+
+        # Message content matching
+        from core.services.message_service import message_service
+        msg_cids = message_service.find_matching_conversation_ids(
+            user_id=user_id,
+            query=clean_query,
+            limit=100,
+        )
+        for mcid in msg_cids:
+            if mcid not in matched_map and mcid in user_store:
+                c = user_store[mcid]
+                if c.get("status") != "deleted" and (not status or c.get("status") == status):
+                    c["message_count"] = int(c.get("message_count") or 0)
+                    matched_map[mcid] = c
+
+        combined = list(matched_map.values())
+        combined.sort(
+            key=_get_sort_val,
+            reverse=is_desc,
+        )
+        total = len(combined)
+        return combined[offset : offset + limit], total
+
     def get_conversation(self, user_id: str, conversation_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieves a single conversation, verifying that it belongs to the authenticated user_id.

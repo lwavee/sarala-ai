@@ -257,7 +257,7 @@ def normalize_memory_type(val: Optional[str]) -> str:
     """Normalizes memory type to controlled vocabulary with safe 'other' fallback."""
     if not val:
         return "other"
-    cleaned = str(val).strip().lower()
+    cleaned = val.strip().lower()
     return cleaned if cleaned in ALLOWED_MEMORY_TYPES else "other"
 
 def normalize_importance(val: Any) -> float:
@@ -375,19 +375,28 @@ class RecordFileRequest(BaseModel):
     mime_type: str = Field("application/octet-stream", max_length=100)
     storage_provider: str = Field("local", max_length=50)
     status: str = Field("uploaded", max_length=50)
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    file_extension: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    user_id: Optional[str] = None  # Explicitly rejected or ignored to prevent spoofing
 
 
 class UpdateFileRequest(BaseModel):
     original_name: Optional[str] = Field(None, max_length=255)
     status: Optional[str] = Field(None, max_length=50)
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class UserFileResponseData(BaseModel):
     id: str
     user_id: str
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
     original_name: str
+    file_extension: Optional[str] = ""
     storage_provider: str
     storage_key: str
     mime_type: str
@@ -401,7 +410,7 @@ class UserFileResponseData(BaseModel):
 
 # ── Chat & Auth Request Schemas ───────────────────────────────────────────────
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=50000)
     conversation_id: Optional[str] = None
     client_message_id: Optional[str] = None
     theme_mode: str = "normal"
@@ -411,6 +420,17 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     task_type: Optional[str] = None
     agent_mode: Optional[bool] = False
+    file_ids: Optional[List[str]] = None
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def validate_message(cls, v):
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("Message content cannot be empty.")
+        clean = v.strip()
+        if len(clean) > 50000:
+            raise ValueError("Message exceeds maximum allowed length of 50000 characters.")
+        return clean
 
 
 class LoginRequest(BaseModel):

@@ -30,7 +30,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from web.app import app
-from core.mongodb_client import generate_token, hash_password
+from core.mongodb_client import generate_token, hash_password, mongodb_manager
 from core.auth import get_or_create_profile
 from core.services import (
     profile_service,
@@ -83,9 +83,6 @@ def run_tests():
         "role": "user",
         "is_active": True,
     }
-    token_b = generate_token(user_b)
-    headers_b = {"Authorization": f"Bearer {token_b}"}
-
     admin_user = {
         "id": "00000000-0000-0000-0000-000000000001",
         "email": "loharavee@gmail.com",
@@ -94,6 +91,9 @@ def run_tests():
         "role": "admin",
         "is_active": True,
     }
+    mongodb_manager.enable_test_mock([user_a, user_b, admin_user])
+    token_b = generate_token(user_b)
+    headers_b = {"Authorization": f"Bearer {token_b}"}
     token_admin = generate_token(admin_user)
     headers_admin = {"Authorization": f"Bearer {token_admin}"}
 

@@ -441,10 +441,14 @@ class MemoryService:
 
             # 2. Key matching
             for token in q_tokens:
-                if token == k or token in k:
+                t_stem = token[:-3] if token.endswith("ies") else token.rstrip("s")
+                k_stem = k[:-3] if k.endswith("ies") else k.rstrip("s")
+                if token == k or token in k or (len(t_stem) >= 3 and t_stem in k):
                     score += 8.0
-                elif k in token:
+                elif k in token or (len(k_stem) >= 3 and k_stem in token):
                     score += 5.0
+                elif len(t_stem) >= 4 and len(k_stem) >= 4 and (t_stem in k_stem or k_stem in t_stem):
+                    score += 6.0
 
             # 3. Value keyword matching
             for token in q_tokens:
